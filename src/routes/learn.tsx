@@ -30,6 +30,7 @@ import {
   ChevronLeft,
   CheckCheck,
 } from "lucide-react";
+import { ChemPassage, ChemText } from "../lib/chemNotation";
 
 export const Route = createFileRoute("/learn")({
   beforeLoad: () => {
@@ -1230,7 +1231,9 @@ function LearnPage() {
                 />
 
                 {/* Passage */}
-                <p
+                {/* Passage */}
+                <ChemPassage
+                  text={session.passage}
                   style={{
                     fontFamily: "var(--font-display)",
                     fontSize: "16px",
@@ -1239,9 +1242,7 @@ function LearnPage() {
                     margin: 0,
                     fontWeight: 400,
                   }}
-                >
-                  {session.passage}
-                </p>
+                />
               </div>
             </div>
 
@@ -1496,17 +1497,17 @@ function QuestionCard({
         )}
       </div>
 
-      <p
+      <ChemText
+        text={question.question}
         style={{
           fontSize: "13px",
           fontWeight: 600,
           color: "var(--dark)",
+          display: "block",
           margin: "0 0 12px",
           lineHeight: 1.5,
         }}
-      >
-        {question.question}
-      </p>
+      />
 
       <div
         style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "7px" }}
@@ -1589,9 +1590,10 @@ function QuestionCard({
                   />
                 )}
               </div>
-              <span style={{ fontWeight: showResult && isCorrect ? 600 : 400 }}>
-                {option}
-              </span>
+              <ChemText
+                text={option}
+                style={{ fontWeight: showResult && isCorrect ? 600 : 400 }}
+              />
             </button>
           );
         })}
