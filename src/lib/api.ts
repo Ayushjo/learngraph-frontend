@@ -162,9 +162,13 @@ export const graphApi = {
     const res = await api.get(`/api/graph/${studentId}/filtered`, { params });
     return res.data.data;
   },
-  getRecommendations: async (studentId: string, subject: string) => {
+  getRecommendations: async (
+    studentId: string,
+    subject: string,
+    maxClassLevel: number = 10,
+  ) => {
     const res = await api.get(`/api/graph/${studentId}/recommendations`, {
-      params: { subject },
+      params: { subject, maxClassLevel },
     });
     return res.data.data;
   },

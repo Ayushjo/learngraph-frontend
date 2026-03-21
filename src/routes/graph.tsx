@@ -124,9 +124,11 @@ function GraphPage() {
     if (!student) return;
     setLoading(true);
     try {
+      const preferredClassLevel =
+        useStudentStore.getState().preferredClassLevel;
       const [graphData, recs] = await Promise.all([
         graphApi.getStudentGraph(student.id),
-        graphApi.getRecommendations(student.id, "Science"),
+        graphApi.getRecommendations(student.id, "Science", preferredClassLevel),
       ]);
       setGraph(graphData);
       setRecommendations(recs);
@@ -139,6 +141,11 @@ function GraphPage() {
 
   useEffect(() => {
     fetchGraph();
+  }, [fetchGraph]);
+  useEffect(() => {
+    const handleFocus = () => fetchGraph();
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
   }, [fetchGraph]);
 
   // Transform data for react-force-graph

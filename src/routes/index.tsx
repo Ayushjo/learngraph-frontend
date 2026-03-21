@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { useStudentStore } from "../store/student.store";
 import { studentApi } from "../lib/api";
 import toast from "react-hot-toast";
-import { Brain, ArrowRight } from "lucide-react";
+import { ArrowRight, Sprout, BookOpen, Brain, TrendingUp } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   component: StudentEntry,
@@ -29,7 +29,6 @@ function StudentEntry() {
     try {
       const s = await studentApi.findOrCreate(name.trim());
       setStudent(s);
-      toast.success(`Welcome, ${s.name}!`);
       navigate({ to: "/learn" });
     } catch {
       toast.error("Something went wrong. Try again.");
@@ -39,72 +38,181 @@ function StudentEntry() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4">
-      <div className="w-full max-w-md">
-        {/* Card */}
-        <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm p-8">
-          {/* Icon */}
-          <div className="w-14 h-14 bg-[#EEF2FF] rounded-2xl flex items-center justify-center mb-6">
-            <Brain className="w-8 h-8 text-[#4F46E5]" />
+    <div
+      style={{
+        minHeight: "calc(100vh - 52px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "40px 20px",
+        background: "var(--bg)",
+      }}
+    >
+      <div style={{ width: "100%", maxWidth: "420px" }}>
+        {/* Hero icon */}
+        <div style={{ textAlign: "center", marginBottom: "32px" }}>
+          <div
+            style={{
+              width: "56px",
+              height: "56px",
+              background: "var(--accent)",
+              borderRadius: "16px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 16px",
+              boxShadow: "0 8px 24px rgba(232,68,106,0.25)",
+            }}
+          >
+            <Sprout size={28} color="#fff" strokeWidth={2} />
           </div>
-
-          {/* Heading */}
-          <h1 className="text-2xl font-bold text-[#0F172A] mb-1">
+          <h1
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: "28px",
+              fontWeight: 700,
+              color: "var(--dark)",
+              margin: "0 0 8px",
+              letterSpacing: "-0.5px",
+            }}
+          >
             Welcome to LearnGraph
           </h1>
-          <p className="text-[#64748B] text-sm mb-8">
-            Your personal knowledge graph grows as you learn. Start by entering
-            your name.
+          <p
+            style={{
+              fontSize: "14px",
+              color: "var(--muted)",
+              margin: 0,
+              lineHeight: 1.6,
+            }}
+          >
+            Your personal knowledge graph grows smarter every time you learn.
           </p>
+        </div>
 
-          {/* Input */}
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-[#0F172A] mb-2">
-              Your name
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. Rahul, Priya..."
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleEnter()}
-              className="w-full px-4 py-3 rounded-xl border border-[#E2E8F0] text-[#0F172A] placeholder-[#94A3B8] focus:outline-none focus:ring-2 focus:ring-[#4F46E5] focus:border-transparent text-sm transition-all"
-              autoFocus
-            />
-          </div>
+        {/* Card */}
+        <div
+          style={{
+            background: "var(--surface)",
+            borderRadius: "20px",
+            border: "1px solid var(--border)",
+            padding: "28px",
+            boxShadow: "0 2px 16px rgba(232,68,106,0.06)",
+          }}
+        >
+          <label
+            style={{
+              display: "block",
+              fontSize: "13px",
+              fontWeight: 600,
+              color: "var(--dark)",
+              marginBottom: "8px",
+            }}
+          >
+            What's your name?
+          </label>
 
-          {/* Button */}
+          <input
+            type="text"
+            placeholder="e.g. Rahul, Priya, Arjun..."
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleEnter()}
+            autoFocus
+            style={{
+              width: "100%",
+              padding: "12px 16px",
+              borderRadius: "12px",
+              border: "1.5px solid var(--border)",
+              fontSize: "14px",
+              color: "var(--dark)",
+              background: "var(--bg)",
+              outline: "none",
+              marginBottom: "16px",
+              fontFamily: "var(--font-ui)",
+              transition: "border-color 0.2s",
+            }}
+            onFocus={(e) => (e.target.style.borderColor = "var(--accent)")}
+            onBlur={(e) => (e.target.style.borderColor = "var(--border)")}
+          />
+
           <button
             onClick={handleEnter}
-            disabled={loading}
-            className="w-full flex items-center justify-center gap-2 bg-[#4F46E5] hover:bg-[#4338CA] disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition-colors text-sm"
+            disabled={loading || name.trim().length < 2}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              padding: "13px",
+              borderRadius: "12px",
+              border: "none",
+              background: name.trim().length >= 2 ? "var(--accent)" : "#E5D0D5",
+              color: "#fff",
+              fontSize: "14px",
+              fontWeight: 600,
+              fontFamily: "var(--font-ui)",
+              cursor: name.trim().length >= 2 ? "pointer" : "not-allowed",
+              transition: "all 0.2s",
+              boxShadow:
+                name.trim().length >= 2
+                  ? "0 4px 14px rgba(232,68,106,0.3)"
+                  : "none",
+            }}
           >
             {loading ? (
-              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              <div
+                style={{
+                  width: "16px",
+                  height: "16px",
+                  border: "2px solid rgba(255,255,255,0.3)",
+                  borderTopColor: "#fff",
+                  borderRadius: "50%",
+                  animation: "spin 0.7s linear infinite",
+                }}
+              />
             ) : (
               <>
-                Start Learning
-                <ArrowRight className="w-4 h-4" />
+                <span>Start Learning</span>
+                <ArrowRight size={15} strokeWidth={2.5} />
               </>
             )}
           </button>
         </div>
 
-        {/* Features */}
-        <div className="grid grid-cols-3 gap-3 mt-4">
+        {/* Feature pills */}
+        <div
+          style={{
+            display: "flex",
+            gap: "8px",
+            marginTop: "20px",
+            justifyContent: "center",
+            flexWrap: "wrap",
+          }}
+        >
           {[
-            { icon: "📖", text: "NCERT aligned passages" },
-            { icon: "🧠", text: "Personal knowledge graph" },
-            { icon: "✨", text: "AI-powered questions" },
+            { icon: <BookOpen size={12} />, text: "NCERT aligned" },
+            { icon: <Brain size={12} />, text: "Personal knowledge graph" },
+            { icon: <TrendingUp size={12} />, text: "Tracks your mastery" },
           ].map((f) => (
             <div
               key={f.text}
-              className="bg-white rounded-xl border border-[#E2E8F0] p-3 text-center"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
+                padding: "6px 12px",
+                borderRadius: "99px",
+                background: "var(--surface)",
+                border: "1px solid var(--border)",
+                fontSize: "11px",
+                fontWeight: 500,
+                color: "var(--muted)",
+              }}
             >
-              <div className="text-xl mb-1">{f.icon}</div>
-              <div className="text-xs text-[#64748B] font-medium leading-tight">
-                {f.text}
-              </div>
+              {f.icon}
+              {f.text}
             </div>
           ))}
         </div>

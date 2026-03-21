@@ -1,9 +1,10 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useStudentStore } from "../store/student.store";
-import { contentApi, quizApi } from "../lib/api";
-import type { Session, QuizResult, Question } from "../lib/api";
+import { contentApi, quizApi, graphApi } from "../lib/api";
+import type { Session, QuizResult, Question, GraphNode } from "../lib/api";
 import { TOPICS_BY_CLASS, CLASS_LEVELS } from "../lib/topics";
+import { redirect } from "@tanstack/react-router";
 import toast from "react-hot-toast";
 import {
   BookOpen,
@@ -16,67 +17,66 @@ import {
   Brain,
   RotateCcw,
   ArrowRight,
+  Clock,
+  Target,
+  Zap,
 } from "lucide-react";
-import { redirect } from "@tanstack/react-router";
+
 export const Route = createFileRoute("/learn")({
   beforeLoad: () => {
     const student = useStudentStore.getState().student;
-    if (!student) {
-      throw redirect({ to: "/" });
-    }
+    if (!student) throw redirect({ to: "/" });
   },
   component: LearnPage,
 });
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 type ScreenState = "setup" | "loading" | "quiz" | "results";
 
-// ─── Mastery color helper ─────────────────────────────────────────────────────
+// ─── Mastery helpers ──────────────────────────────────────────────────────────
 
-const masteryColor = (level: string) => {
-  switch (level) {
-    case "mastered":
-      return "text-emerald-600 bg-emerald-50";
-    case "proficient":
-      return "text-yellow-600 bg-yellow-50";
-    case "developing":
-      return "text-orange-600 bg-orange-50";
-    case "struggling":
-      return "text-red-600 bg-red-50";
-    default:
-      return "text-slate-500 bg-slate-50";
-  }
+const MASTERY_COLORS: Record<string, string> = {
+  mastered: "#059669",
+  proficient: "#D97706",
+  developing: "#2563EB",
+  struggling: "#DC2626",
+  not_started: "#9CA3AF",
 };
 
-const masteryBar = (level: string) => {
-  switch (level) {
-    case "mastered":
-      return "bg-emerald-500";
-    case "proficient":
-      return "bg-yellow-500";
-    case "developing":
-      return "bg-orange-500";
-    case "struggling":
-      return "bg-red-500";
-    default:
-      return "bg-slate-300";
-  }
+const MASTERY_BG: Record<string, string> = {
+  mastered: "#ECFDF5",
+  proficient: "#FFFBEB",
+  developing: "#EFF6FF",
+  struggling: "#FEF2F2",
+  not_started: "#F9FAFB",
+};
+
+const masteryLabel = (level: string) =>
+  ({
+    mastered: "Mastered",
+    proficient: "Proficient",
+    developing: "Developing",
+    struggling: "Struggling",
+    not_started: "Not Started",
+  })[level] ?? level;
+
+const getGreeting = () => {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  return "Good evening";
 };
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 function LearnPage() {
   const student = useStudentStore((s) => s.student);
-  const navigate = useNavigate();
+  const preferredClassLevel = useStudentStore((s) => s.preferredClassLevel);
+  const setPreferredClassLevel = useStudentStore(
+    (s) => s.setPreferredClassLevel,
+  );
 
-  // Redirect if not logged in
-  useEffect(() => {
-    if (!student) navigate({ to: "/" });
-  }, [student, navigate]);
-
-  // ── State ──────────────────────────────────────────────────────────────────
   const [screen, setScreen] = useState<ScreenState>("setup");
-  const [classLevel, setClassLevel] = useState<number>(9);
+  const [classLevel, setClassLevel] = useState<number>(preferredClassLevel);
   const [topicId, setTopicId] = useState<string>("");
   const [session, setSession] = useState<Session | null>(null);
   const [selectedAnswers, setSelectedAnswers] = useState<
@@ -85,14 +85,71 @@ function LearnPage() {
   const [quizResult, setQuizResult] = useState<QuizResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [unansweredQuestions, setUnansweredQuestions] = useState<number[]>([]);
+
+  // Dashboard data
+  const [dashLoading, setDashLoading] = useState(true);
+  const [graphStats, setGraphStats] = useState<any>(null);
+  const [recommendations, setRecommendations] = useState<any[]>([]);
+  const [lastAttempted, setLastAttempted] = useState<GraphNode | null>(null);
+
   const topics = TOPICS_BY_CLASS[classLevel] || [];
   const selectedTopic = topics.find((t: any) => t.id === topicId);
 
-  // ── Handlers ───────────────────────────────────────────────────────────────
-
-  const handleGenerate = async () => {
+  // Fetch dashboard data
+  const fetchDashboard = useCallback(async () => {
     if (!student) return;
-    if (!topicId) {
+    setDashLoading(true);
+    try {
+      const [graph, recs] = await Promise.all([
+        graphApi.getStudentGraph(student.id),
+        graphApi.getRecommendations(student.id, "Science", preferredClassLevel),
+      ]);
+      setGraphStats(graph.stats);
+      setRecommendations(recs.slice(0, 3));
+
+      // Find last attempted topic
+      const attempted = graph.nodes
+        .filter(
+          (n: GraphNode) => n.attempts > 0 && n.masteryLevel !== "mastered",
+        )
+        .sort((a: GraphNode, b: GraphNode) => {
+          if (!a.lastAttempted) return 1;
+          if (!b.lastAttempted) return -1;
+          return (
+            new Date(b.lastAttempted).getTime() -
+            new Date(a.lastAttempted).getTime()
+          );
+        });
+      setLastAttempted(attempted[0] ?? null);
+    } catch {
+      // silent fail — dashboard is enhancement not critical
+    } finally {
+      setDashLoading(false);
+    }
+  }, [student, preferredClassLevel]);
+
+  useEffect(() => {
+    fetchDashboard();
+  }, [fetchDashboard]);
+
+  // Refresh dashboard when coming back to setup
+  useEffect(() => {
+    if (screen === "setup") fetchDashboard();
+  }, [screen]);
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
+
+  const handleGenerate = async (
+    overrideTopicId?: string,
+    overrideTopicName?: string,
+    overrideClass?: number,
+  ) => {
+    if (!student) return;
+    const tId = overrideTopicId ?? topicId;
+    const tName = overrideTopicName ?? selectedTopic?.name;
+    const tClass = overrideClass ?? classLevel;
+
+    if (!tId || !tName) {
       toast.error("Please select a topic");
       return;
     }
@@ -101,10 +158,10 @@ function LearnPage() {
     try {
       const result = await contentApi.generate({
         studentId: student.id,
-        topicId,
-        topicName: selectedTopic!.name,
+        topicId: tId,
+        topicName: tName,
         subject: "Science",
-        classLevel,
+        classLevel: tClass,
       });
       setSession(result);
       setSelectedAnswers({});
@@ -119,32 +176,25 @@ function LearnPage() {
   const handleSelectAnswer = (questionIndex: number, optionIndex: number) => {
     if (quizResult) return;
     setSelectedAnswers((prev) => ({ ...prev, [questionIndex]: optionIndex }));
-    // Clear unanswered highlight when answered
     setUnansweredQuestions((prev) => prev.filter((i) => i !== questionIndex));
   };
 
   const handleSubmit = async () => {
     if (!student || !session) return;
-
-    // Find which questions are unanswered
     const unanswered = [0, 1, 2, 3, 4].filter(
       (i) => selectedAnswers[i] === undefined,
     );
-
     if (unanswered.length > 0) {
       setUnansweredQuestions(unanswered);
       toast.error(
         `Please answer question${unanswered.length > 1 ? "s" : ""} ${unanswered.map((i) => i + 1).join(", ")}`,
       );
-      // Scroll to first unanswered question
       const el = document.getElementById(`question-${unanswered[0]}`);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
-
     setUnansweredQuestions([]);
     setSubmitting(true);
-
     try {
       const answers = [0, 1, 2, 3, 4].map((i) => selectedAnswers[i] ?? 0);
       const result = await quizApi.submit({
@@ -170,137 +220,772 @@ function LearnPage() {
     setTopicId("");
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────────
-
   if (!student) return null;
 
   return (
-    <div className="h-[calc(100vh-64px)] flex flex-col">
-      {/* Top bar */}
-      <div className="bg-white border-b border-[#E2E8F0] px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <BookOpen className="w-4 h-4 text-[#4F46E5]" />
-          <span className="text-sm font-medium text-[#0F172A]">
-            {session ? session.title : "Select a topic to begin"}
+    <div
+      style={{
+        height: "calc(100vh - 52px)",
+        display: "flex",
+        flexDirection: "column",
+        fontFamily: "var(--font-ui)",
+      }}
+    >
+      {/* ── Top breadcrumb bar ── */}
+      <div
+        style={{
+          background: "var(--surface)",
+          borderBottom: "1px solid var(--border)",
+          padding: "0 24px",
+          height: "44px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexShrink: 0,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <BookOpen size={14} color="var(--accent)" strokeWidth={2} />
+          <span
+            style={{ fontSize: "13px", fontWeight: 500, color: "var(--dark)" }}
+          >
+            {session ? session.title : "Science · NCERT"}
           </span>
           {session && (
             <>
-              <ChevronRight className="w-3 h-3 text-[#94A3B8]" />
-              <span className="text-xs text-[#64748B]">
-                Class {session.topic.classLevel} · {session.topic.subject}
+              <ChevronRight size={12} color="var(--muted)" />
+              <span style={{ fontSize: "12px", color: "var(--muted)" }}>
+                Class {session.topic.classLevel}
               </span>
             </>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          {screen !== "setup" && (
-            <button
-              onClick={handleReset}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-[#64748B] hover:bg-[#F1F5F9] transition-colors"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              New Topic
-            </button>
-          )}
-        </div>
+        {screen !== "setup" && (
+          <button
+            onClick={handleReset}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              padding: "5px 12px",
+              borderRadius: "8px",
+              border: "1px solid var(--border)",
+              background: "transparent",
+              fontSize: "12px",
+              fontWeight: 500,
+              color: "var(--muted)",
+              cursor: "pointer",
+              fontFamily: "var(--font-ui)",
+            }}
+          >
+            <RotateCcw size={12} strokeWidth={2} />
+            New Topic
+          </button>
+        )}
       </div>
 
-      {/* Main content */}
-      <div className="flex-1 overflow-hidden flex">
-        {/* ── SETUP STATE ─────────────────────────────────────────────────── */}
+      {/* ── Main content ── */}
+      <div style={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        {/* ════ SETUP / DASHBOARD ════ */}
         {screen === "setup" && (
-          <div className="flex-1 flex items-center justify-center p-8">
-            <div className="w-full max-w-lg">
-              <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm p-8">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-10 h-10 bg-[#EEF2FF] rounded-xl flex items-center justify-center">
-                    <Sparkles className="w-5 h-5 text-[#4F46E5]" />
-                  </div>
-                  <div>
-                    <h2 className="font-bold text-[#0F172A]">Start Learning</h2>
-                    <p className="text-xs text-[#64748B]">
-                      Choose your class and topic
-                    </p>
-                  </div>
-                </div>
-
-                {/* Class selector */}
-                <div className="mb-5">
-                  <label className="block text-sm font-medium text-[#0F172A] mb-2">
-                    Class
-                  </label>
-                  <div className="flex gap-2">
-                    {CLASS_LEVELS.map((cls: any) => (
-                      <button
-                        key={cls}
-                        onClick={() => {
-                          setClassLevel(cls);
-                          setTopicId("");
-                        }}
-                        className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all ${
-                          classLevel === cls
-                            ? "bg-[#4F46E5] text-white border-[#4F46E5]"
-                            : "bg-white text-[#64748B] border-[#E2E8F0] hover:border-[#4F46E5] hover:text-[#4F46E5]"
-                        }`}
-                      >
-                        {cls}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Topic selector */}
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-[#0F172A] mb-2">
-                    Topic
-                  </label>
-                  <select
-                    value={topicId}
-                    onChange={(e) => setTopicId(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl border border-[#E2E8F0] text-[#0F172A] text-sm focus:outline-none focus:ring-2 focus:ring-[#4F46E5] focus:border-transparent bg-white appearance-none"
-                  >
-                    <option value="">— Select a topic —</option>
-                    {topics.map((t: any) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Generate button */}
-                <button
-                  onClick={handleGenerate}
-                  disabled={!topicId}
-                  className="w-full flex items-center justify-center gap-2 bg-[#4F46E5] hover:bg-[#4338CA] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition-colors text-sm"
+          <div style={{ flex: 1, overflowY: "auto", padding: "32px 40px" }}>
+            <div style={{ maxWidth: "860px", margin: "0 auto" }}>
+              {/* Greeting */}
+              <div style={{ marginBottom: "28px" }}>
+                <h1
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    fontSize: "26px",
+                    fontWeight: 700,
+                    color: "var(--dark)",
+                    margin: "0 0 4px",
+                    letterSpacing: "-0.4px",
+                  }}
                 >
-                  <Sparkles className="w-4 h-4" />
-                  Generate Passage & Quiz
-                </button>
+                  {getGreeting()},{" "}
+                  <span
+                    style={{
+                      color: "var(--accent)",
+                      textTransform: "capitalize",
+                    }}
+                  >
+                    {student.name}
+                  </span>{" "}
+                  👋
+                </h1>
+                <p
+                  style={{ fontSize: "14px", color: "var(--muted)", margin: 0 }}
+                >
+                  Here's where your Science journey stands today
+                </p>
+              </div>
+
+              {/* Stats row */}
+              {!dashLoading && graphStats && (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(4, 1fr)",
+                    gap: "12px",
+                    marginBottom: "28px",
+                  }}
+                >
+                  {[
+                    {
+                      label: "Total Topics",
+                      value: graphStats.totalTopics,
+                      icon: <BookOpen size={16} />,
+                      color: "#6366F1",
+                    },
+                    {
+                      label: "Attempted",
+                      value: graphStats.attempted,
+                      icon: <Target size={16} />,
+                      color: "var(--accent)",
+                    },
+                    {
+                      label: "Mastered",
+                      value: graphStats.mastered,
+                      icon: <CheckCircle2 size={16} />,
+                      color: "#059669",
+                    },
+                    {
+                      label: "Avg Mastery",
+                      value: `${Math.round(graphStats.averageMastery * 100)}%`,
+                      icon: <TrendingUp size={16} />,
+                      color: "#D97706",
+                    },
+                  ].map((stat) => (
+                    <div
+                      key={stat.label}
+                      style={{
+                        background: "var(--surface)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "14px",
+                        padding: "16px",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "12px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: "36px",
+                          height: "36px",
+                          borderRadius: "10px",
+                          background: stat.color + "15",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: stat.color,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {stat.icon}
+                      </div>
+                      <div>
+                        <div
+                          style={{
+                            fontSize: "20px",
+                            fontWeight: 700,
+                            color: "var(--dark)",
+                            lineHeight: 1,
+                          }}
+                        >
+                          {stat.value}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: "11px",
+                            color: "var(--muted)",
+                            marginTop: "2px",
+                          }}
+                        >
+                          {stat.label}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Two column layout */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "20px",
+                  marginBottom: "28px",
+                }}
+              >
+                {/* Continue where you left off */}
+                <div
+                  style={{
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "16px",
+                    padding: "20px",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      marginBottom: "16px",
+                    }}
+                  >
+                    <Clock size={13} color="var(--accent)" strokeWidth={2} />
+                    <span
+                      style={{
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        color: "var(--accent)",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.8px",
+                      }}
+                    >
+                      Continue Learning
+                    </span>
+                  </div>
+
+                  {lastAttempted ? (
+                    <>
+                      <div
+                        style={{
+                          background: "var(--bg)",
+                          borderRadius: "12px",
+                          padding: "14px",
+                          marginBottom: "14px",
+                          border: "1px solid var(--border)",
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: "14px",
+                            fontWeight: 600,
+                            color: "var(--dark)",
+                            marginBottom: "8px",
+                            lineHeight: 1.3,
+                          }}
+                        >
+                          {lastAttempted.name}
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            marginBottom: "8px",
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: "11px",
+                              fontWeight: 600,
+                              padding: "2px 8px",
+                              borderRadius: "99px",
+                              color: MASTERY_COLORS[lastAttempted.masteryLevel],
+                              background:
+                                MASTERY_BG[lastAttempted.masteryLevel],
+                            }}
+                          >
+                            {masteryLabel(lastAttempted.masteryLevel)}
+                          </span>
+                          <span
+                            style={{ fontSize: "11px", color: "var(--muted)" }}
+                          >
+                            Class {lastAttempted.classLevel}
+                          </span>
+                        </div>
+                        {/* Mastery bar */}
+                        <div
+                          style={{
+                            background: "var(--border)",
+                            borderRadius: "99px",
+                            height: "5px",
+                            overflow: "hidden",
+                          }}
+                        >
+                          <div
+                            style={{
+                              height: "100%",
+                              width: `${lastAttempted.mastery * 100}%`,
+                              background:
+                                MASTERY_COLORS[lastAttempted.masteryLevel],
+                              borderRadius: "99px",
+                              transition: "width 0.6s ease",
+                            }}
+                          />
+                        </div>
+                        <div
+                          style={{
+                            fontSize: "10px",
+                            color: "var(--muted)",
+                            marginTop: "4px",
+                          }}
+                        >
+                          {Math.round(lastAttempted.mastery * 100)}% mastery ·{" "}
+                          {lastAttempted.attempts} attempt
+                          {lastAttempted.attempts !== 1 ? "s" : ""}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          const allTopics =
+                            Object.values(TOPICS_BY_CLASS).flat();
+                          const topic = allTopics.find(
+                            (t: any) => t.id === lastAttempted.id,
+                          );
+                          if (topic)
+                            handleGenerate(
+                              topic.id,
+                              topic.name,
+                              topic.classLevel,
+                            );
+                        }}
+                        style={{
+                          width: "100%",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: "6px",
+                          padding: "11px",
+                          borderRadius: "10px",
+                          border: "none",
+                          background: "var(--accent)",
+                          color: "#fff",
+                          fontSize: "13px",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          fontFamily: "var(--font-ui)",
+                          boxShadow: "0 2px 10px rgba(232,68,106,0.25)",
+                        }}
+                      >
+                        Continue <ArrowRight size={13} strokeWidth={2.5} />
+                      </button>
+                    </>
+                  ) : (
+                    <div
+                      style={{
+                        textAlign: "center",
+                        padding: "20px 0",
+                        color: "var(--muted)",
+                        fontSize: "13px",
+                      }}
+                    >
+                      <BookOpen
+                        size={28}
+                        style={{ margin: "0 auto 8px", opacity: 0.3 }}
+                      />
+                      <p style={{ margin: 0 }}>
+                        No sessions yet.
+                        <br />
+                        Start your first topic below!
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Recommended next */}
+                <div
+                  style={{
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "16px",
+                    padding: "20px",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      marginBottom: "16px",
+                    }}
+                  >
+                    <Zap size={13} color="#D97706" strokeWidth={2} />
+                    <span
+                      style={{
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        color: "#D97706",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.8px",
+                      }}
+                    >
+                      Recommended Next
+                    </span>
+                  </div>
+
+                  {dashLoading ? (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "8px",
+                      }}
+                    >
+                      {[1, 2, 3].map((i) => (
+                        <div
+                          key={i}
+                          style={{
+                            height: "44px",
+                            borderRadius: "10px",
+                            background: "var(--bg)",
+                            animation: "pulse 1.5s ease-in-out infinite",
+                          }}
+                        />
+                      ))}
+                    </div>
+                  ) : recommendations.length > 0 ? (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "8px",
+                      }}
+                    >
+                      {recommendations.map((rec: any) => (
+                        <button
+                          key={rec.id}
+                          onClick={() => {
+                            const allTopics =
+                              Object.values(TOPICS_BY_CLASS).flat();
+                            const topic = allTopics.find(
+                              (t: any) => t.id === rec.id,
+                            );
+                            if (topic)
+                              handleGenerate(
+                                topic.id,
+                                topic.name,
+                                topic.classLevel,
+                              );
+                          }}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            padding: "10px 12px",
+                            borderRadius: "10px",
+                            border: "1px solid var(--border)",
+                            background: "var(--bg)",
+                            cursor: "pointer",
+                            fontFamily: "var(--font-ui)",
+                            textAlign: "left",
+                            transition: "all 0.15s",
+                          }}
+                          onMouseEnter={(e) => {
+                            (
+                              e.currentTarget as HTMLButtonElement
+                            ).style.borderColor = "var(--accent)";
+                            (
+                              e.currentTarget as HTMLButtonElement
+                            ).style.background = "var(--accent-light)";
+                          }}
+                          onMouseLeave={(e) => {
+                            (
+                              e.currentTarget as HTMLButtonElement
+                            ).style.borderColor = "var(--border)";
+                            (
+                              e.currentTarget as HTMLButtonElement
+                            ).style.background = "var(--bg)";
+                          }}
+                        >
+                          <div>
+                            <div
+                              style={{
+                                fontSize: "13px",
+                                fontWeight: 600,
+                                color: "var(--dark)",
+                                marginBottom: "2px",
+                              }}
+                            >
+                              {rec.name}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: "11px",
+                                color: "var(--muted)",
+                              }}
+                            >
+                              Class {rec.classLevel}
+                            </div>
+                          </div>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "6px",
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                fontWeight: 600,
+                                padding: "2px 7px",
+                                borderRadius: "99px",
+                                color: MASTERY_COLORS[rec.masteryLevel],
+                                background: MASTERY_BG[rec.masteryLevel],
+                              }}
+                            >
+                              {masteryLabel(rec.masteryLevel)}
+                            </span>
+                            <ArrowRight
+                              size={12}
+                              color="var(--muted)"
+                              strokeWidth={2}
+                            />
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        textAlign: "center",
+                        padding: "20px 0",
+                        color: "var(--muted)",
+                        fontSize: "13px",
+                      }}
+                    >
+                      <Sparkles
+                        size={28}
+                        style={{ margin: "0 auto 8px", opacity: 0.3 }}
+                      />
+                      <p style={{ margin: 0 }}>
+                        Complete some topics to get personalized recommendations
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Manual explorer */}
+              <div
+                style={{
+                  background: "var(--surface)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "16px",
+                  padding: "20px",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    marginBottom: "16px",
+                  }}
+                >
+                  <Brain size={13} color="var(--muted)" strokeWidth={2} />
+                  <span
+                    style={{
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      color: "var(--muted)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.8px",
+                    }}
+                  >
+                    Explore All Topics
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "20px",
+                    alignItems: "flex-end",
+                  }}
+                >
+                  {/* Class buttons */}
+                  <div style={{ flexShrink: 0 }}>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        fontWeight: 600,
+                        color: "var(--dark)",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      Class
+                    </div>
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      {CLASS_LEVELS.map((cls: any) => (
+                        <button
+                          key={cls}
+                          onClick={() => {
+                            setClassLevel(cls);
+                            setPreferredClassLevel(cls);
+                            setTopicId("");
+                          }}
+                          style={{
+                            width: "40px",
+                            height: "40px",
+                            borderRadius: "10px",
+                            border: "1.5px solid",
+                            borderColor:
+                              classLevel === cls
+                                ? "var(--accent)"
+                                : "var(--border)",
+                            background:
+                              classLevel === cls
+                                ? "var(--accent)"
+                                : "var(--bg)",
+                            color: classLevel === cls ? "#fff" : "var(--muted)",
+                            fontSize: "13px",
+                            fontWeight: 600,
+                            cursor: "pointer",
+                            fontFamily: "var(--font-ui)",
+                            transition: "all 0.15s",
+                          }}
+                        >
+                          {cls}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Topic dropdown */}
+                  <div style={{ flex: 1 }}>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        fontWeight: 600,
+                        color: "var(--dark)",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      Topic
+                    </div>
+                    <select
+                      value={topicId}
+                      onChange={(e) => setTopicId(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "10px 14px",
+                        borderRadius: "10px",
+                        border: "1.5px solid var(--border)",
+                        fontSize: "13px",
+                        color: topicId ? "var(--dark)" : "var(--muted)",
+                        background: "var(--bg)",
+                        outline: "none",
+                        fontFamily: "var(--font-ui)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <option value="">— Select a topic —</option>
+                      {topics.map((t: any) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Generate button */}
+                  <button
+                    onClick={() => handleGenerate()}
+                    disabled={!topicId}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      padding: "10px 20px",
+                      borderRadius: "10px",
+                      border: "none",
+                      background: topicId ? "var(--accent)" : "#E5D0D5",
+                      color: "#fff",
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      cursor: topicId ? "pointer" : "not-allowed",
+                      fontFamily: "var(--font-ui)",
+                      flexShrink: 0,
+                      height: "40px",
+                      boxShadow: topicId
+                        ? "0 2px 10px rgba(232,68,106,0.25)"
+                        : "none",
+                      transition: "all 0.15s",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    <Sparkles size={13} strokeWidth={2} />
+                    Generate
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* ── LOADING STATE ────────────────────────────────────────────────── */}
+        {/* ════ LOADING ════ */}
         {screen === "loading" && (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <div className="w-14 h-14 bg-[#EEF2FF] rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <Brain className="w-7 h-7 text-[#4F46E5] animate-pulse" />
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <div style={{ textAlign: "center" }}>
+              <div
+                style={{
+                  width: "56px",
+                  height: "56px",
+                  background: "var(--accent-light)",
+                  borderRadius: "16px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  margin: "0 auto 16px",
+                }}
+              >
+                <Brain
+                  size={28}
+                  color="var(--accent)"
+                  strokeWidth={2}
+                  style={{ animation: "pulse 1.2s ease-in-out infinite" }}
+                />
               </div>
-              <h3 className="font-semibold text-[#0F172A] mb-1">
+              <h3
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontSize: "18px",
+                  fontWeight: 600,
+                  color: "var(--dark)",
+                  margin: "0 0 6px",
+                }}
+              >
                 Generating your passage...
               </h3>
-              <p className="text-sm text-[#64748B]">
-                Creating Class {classLevel} content for {selectedTopic?.name}
+              <p
+                style={{
+                  fontSize: "13px",
+                  color: "var(--muted)",
+                  margin: "0 0 20px",
+                }}
+              >
+                Creating Class {classLevel} content on {selectedTopic?.name}
               </p>
-              <div className="flex items-center justify-center gap-1 mt-4">
+              <div
+                style={{
+                  display: "flex",
+                  gap: "6px",
+                  justifyContent: "center",
+                }}
+              >
                 {[0, 1, 2].map((i) => (
                   <div
                     key={i}
-                    className="w-2 h-2 bg-[#4F46E5] rounded-full animate-bounce"
-                    style={{ animationDelay: `${i * 0.15}s` }}
+                    style={{
+                      width: "8px",
+                      height: "8px",
+                      borderRadius: "50%",
+                      background: "var(--accent)",
+                      animation: `bounce-dot 1.2s ease-in-out ${i * 0.2}s infinite`,
+                    }}
                   />
                 ))}
               </div>
@@ -308,66 +993,180 @@ function LearnPage() {
           </div>
         )}
 
-        {/* ── QUIZ STATE ───────────────────────────────────────────────────── */}
+        {/* ════ QUIZ + RESULTS ════ */}
         {(screen === "quiz" || screen === "results") && session && (
-          <div className="flex-1 flex overflow-hidden">
+          <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
             {/* Left — Passage */}
-            <div className="flex-[6] overflow-y-auto bg-[#F3F4F6] p-8">
+            <div
+              style={{
+                flex: "0 0 60%",
+                overflowY: "auto",
+                background: "#F9F0F3",
+                padding: "32px",
+              }}
+            >
               <div
-                className="max-w-2xl mx-auto bg-white rounded-xl shadow-sm border border-[#E2E8F0] p-10"
-                style={{ boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)" }}
+                style={{
+                  maxWidth: "680px",
+                  margin: "0 auto",
+                  background: "var(--surface)",
+                  borderRadius: "16px",
+                  border: "1px solid var(--border)",
+                  padding: "40px",
+                  boxShadow: "0 2px 20px rgba(0,0,0,0.04)",
+                }}
               >
-                {/* Passage title */}
-                <div className="mb-6">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="text-xs font-semibold text-[#4F46E5] bg-[#EEF2FF] px-2.5 py-1 rounded-full">
-                      Class {session.topic.classLevel}
+                {/* Tags */}
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "6px",
+                    marginBottom: "16px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  {[
+                    {
+                      text: `Class ${session.topic.classLevel}`,
+                      color: "var(--accent)",
+                      bg: "var(--accent-light)",
+                    },
+                    {
+                      text: session.topic.subject,
+                      color: "var(--muted)",
+                      bg: "var(--bg)",
+                    },
+                    {
+                      text: session.topic.name,
+                      color: "var(--muted)",
+                      bg: "var(--bg)",
+                    },
+                  ].map((tag) => (
+                    <span
+                      key={tag.text}
+                      style={{
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        padding: "3px 10px",
+                        borderRadius: "99px",
+                        color: tag.color,
+                        background: tag.bg,
+                        border: "1px solid var(--border)",
+                      }}
+                    >
+                      {tag.text}
                     </span>
-                    <span className="text-xs font-semibold text-[#64748B] bg-[#F1F5F9] px-2.5 py-1 rounded-full">
-                      {session.topic.subject}
-                    </span>
-                    <span className="text-xs font-semibold text-[#64748B] bg-[#F1F5F9] px-2.5 py-1 rounded-full">
-                      {session.topic.name}
-                    </span>
-                  </div>
-                  <h1 className="text-xl font-bold text-[#0F172A] leading-snug">
-                    {session.title}
-                  </h1>
+                  ))}
                 </div>
 
-                {/* Divider */}
-                <div className="border-t border-[#E2E8F0] mb-6" />
+                {/* Title */}
+                <h1
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    fontSize: "22px",
+                    fontWeight: 700,
+                    color: "var(--dark)",
+                    margin: "0 0 20px",
+                    lineHeight: 1.3,
+                    letterSpacing: "-0.3px",
+                  }}
+                >
+                  {session.title}
+                </h1>
 
-                {/* Passage text */}
-                <p className="text-[#0F172A] text-base leading-8 tracking-normal">
+                <div
+                  style={{
+                    height: "1px",
+                    background: "var(--border)",
+                    margin: "0 0 24px",
+                  }}
+                />
+
+                {/* Passage */}
+                <p
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    fontSize: "16px",
+                    lineHeight: 1.95,
+                    color: "#2D1B22",
+                    margin: 0,
+                    fontWeight: 400,
+                  }}
+                >
                   {session.passage}
                 </p>
               </div>
             </div>
 
-            {/* Right — Quiz panel */}
-            <div className="flex-[4] flex flex-col border-l border-[#E2E8F0] bg-white overflow-hidden">
+            {/* Right — Quiz */}
+            <div
+              style={{
+                flex: "0 0 40%",
+                display: "flex",
+                flexDirection: "column",
+                borderLeft: "1px solid var(--border)",
+                background: "var(--surface)",
+                overflow: "hidden",
+              }}
+            >
               {/* Quiz header */}
-              <div className="px-5 py-4 border-b border-[#E2E8F0] flex items-center justify-between flex-shrink-0">
+              <div
+                style={{
+                  padding: "14px 20px",
+                  borderBottom: "1px solid var(--border)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexShrink: 0,
+                }}
+              >
                 <div>
-                  <span className="text-sm font-bold text-[#0F172A]">
+                  <span
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: 700,
+                      color: "var(--dark)",
+                    }}
+                  >
                     5 questions
                   </span>
-                  <span className="text-xs text-[#64748B] ml-2">
+                  <span
+                    style={{
+                      fontSize: "12px",
+                      color: "var(--muted)",
+                      marginLeft: "8px",
+                    }}
+                  >
                     {Object.keys(selectedAnswers).length}/5 answered
                   </span>
                 </div>
                 {screen === "results" && quizResult && (
                   <span
-                    className={`text-xs font-semibold px-2.5 py-1 rounded-full ${masteryColor(quizResult.mastery.masteryLevel)}`}
+                    style={{
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      padding: "3px 10px",
+                      borderRadius: "99px",
+                      color: MASTERY_COLORS[quizResult.mastery.masteryLevel],
+                      background: MASTERY_BG[quizResult.mastery.masteryLevel],
+                    }}
                   >
                     {quizResult.grade}
                   </span>
                 )}
               </div>
 
-              {/* Questions list */}
-              <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {/* Questions scroll area */}
+              <div
+                style={{
+                  flex: 1,
+                  overflowY: "auto",
+                  padding: "16px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "12px",
+                }}
+              >
                 {session.questions.map((q: Question, qi: number) => (
                   <QuestionCard
                     key={qi}
@@ -380,29 +1179,57 @@ function LearnPage() {
                     isUnanswered={unansweredQuestions.includes(qi)}
                   />
                 ))}
-
-                {/* Results panel — shown below questions */}
                 {screen === "results" && quizResult && (
                   <ResultsPanel result={quizResult} onReset={handleReset} />
                 )}
               </div>
 
-              {/* Submit button — only in quiz state */}
+              {/* Submit */}
               {screen === "quiz" && (
-                <div className="p-4 border-t border-[#E2E8F0] flex-shrink-0">
+                <div
+                  style={{
+                    padding: "12px 16px",
+                    borderTop: "1px solid var(--border)",
+                    flexShrink: 0,
+                  }}
+                >
                   <button
                     onClick={handleSubmit}
-                    disabled={
-                      submitting || Object.keys(selectedAnswers).length < 5
-                    }
-                    className="w-full flex items-center justify-center gap-2 bg-[#4F46E5] hover:bg-[#4338CA] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition-colors text-sm"
+                    disabled={submitting}
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "7px",
+                      padding: "12px",
+                      borderRadius: "10px",
+                      border: "none",
+                      background: "var(--accent)",
+                      color: "#fff",
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      cursor: submitting ? "not-allowed" : "pointer",
+                      fontFamily: "var(--font-ui)",
+                      boxShadow: "0 2px 10px rgba(232,68,106,0.3)",
+                      opacity: submitting ? 0.7 : 1,
+                    }}
                   >
                     {submitting ? (
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <div
+                        style={{
+                          width: "15px",
+                          height: "15px",
+                          border: "2px solid rgba(255,255,255,0.3)",
+                          borderTopColor: "#fff",
+                          borderRadius: "50%",
+                          animation: "spin 0.7s linear infinite",
+                        }}
+                      />
                     ) : (
                       <>
-                        Submit Answers
-                        <ArrowRight className="w-4 h-4" />
+                        <span>Submit Answers</span>
+                        <ArrowRight size={14} strokeWidth={2.5} />
                       </>
                     )}
                   </button>
@@ -416,7 +1243,7 @@ function LearnPage() {
   );
 }
 
-// ─── Question Card Component ──────────────────────────────────────────────────
+// ─── Question Card ────────────────────────────────────────────────────────────
 
 function QuestionCard({
   question,
@@ -435,7 +1262,7 @@ function QuestionCard({
   showResult: boolean;
   isUnanswered: boolean;
 }) {
-  const cognitiveLabels: Record<string, string> = {
+  const cogLabels: Record<string, string> = {
     recall: "Recall",
     vocabulary: "Vocabulary",
     cause_and_effect: "Cause & Effect",
@@ -443,56 +1270,115 @@ function QuestionCard({
     application: "Application",
   };
 
+  const cardBorder = isUnanswered
+    ? "#DC2626"
+    : showResult
+      ? result?.isCorrect
+        ? "#059669"
+        : "#DC2626"
+      : "var(--border)";
+
+  const cardBg = isUnanswered
+    ? "#FEF2F2"
+    : showResult
+      ? result?.isCorrect
+        ? "#F0FDF4"
+        : "#FEF2F2"
+      : "var(--surface)";
+
   return (
     <div
       id={`question-${questionIndex}`}
-      className={`rounded-xl border p-4 transition-all ${
-        isUnanswered
-          ? "border-red-400 bg-red-50/40 shake"
-          : showResult
-            ? result?.isCorrect
-              ? "border-emerald-200 bg-emerald-50/30"
-              : "border-red-200 bg-red-50/30"
-            : "border-[#E2E8F0] bg-white"
-      }`}
+      className={isUnanswered ? "shake" : ""}
+      style={{
+        borderRadius: "12px",
+        border: `1.5px solid ${cardBorder}`,
+        background: cardBg,
+        padding: "14px",
+        transition: "border-color 0.2s, background 0.2s",
+      }}
     >
-      {/* Meta */}
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-xs font-semibold text-[#64748B] uppercase tracking-wide">
-          {questionIndex + 1}. MULTIPLE CHOICE
+      {/* Meta row */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+          marginBottom: "8px",
+        }}
+      >
+        <span
+          style={{
+            fontSize: "10px",
+            fontWeight: 700,
+            color: "var(--muted)",
+            textTransform: "uppercase",
+            letterSpacing: "0.5px",
+          }}
+        >
+          {questionIndex + 1}. Multiple Choice
         </span>
-        <span className="text-xs text-[#94A3B8]">·</span>
-        <span className="text-xs text-[#64748B]">
-          {cognitiveLabels[question.cognitiveLevel] || question.cognitiveLevel}
+        <span style={{ color: "var(--border)", fontSize: "10px" }}>·</span>
+        <span style={{ fontSize: "10px", color: "var(--muted)" }}>
+          {cogLabels[question.cognitiveLevel] ?? question.cognitiveLevel}
         </span>
-        {showResult &&
-          (result?.isCorrect ? (
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 ml-auto" />
-          ) : (
-            <XCircle className="w-3.5 h-3.5 text-red-500 ml-auto" />
-          ))}
+        {showResult && (
+          <div style={{ marginLeft: "auto" }}>
+            {result?.isCorrect ? (
+              <CheckCircle2 size={14} color="#059669" strokeWidth={2} />
+            ) : (
+              <XCircle size={14} color="#DC2626" strokeWidth={2} />
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Question text */}
-      <p className="text-sm font-semibold text-[#0F172A] mb-3 leading-relaxed">
+      {/* Question */}
+      <p
+        style={{
+          fontSize: "13px",
+          fontWeight: 600,
+          color: "var(--dark)",
+          margin: "0 0 12px",
+          lineHeight: 1.5,
+        }}
+      >
         {question.question}
       </p>
 
-      {/* Options — 2x2 grid */}
-      <div className="grid grid-cols-2 gap-2">
+      {/* Options 2x2 */}
+      <div
+        style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "7px" }}
+      >
         {question.options.map((option, oi) => {
           const isSelected = selectedAnswer === oi;
           const isCorrect = question.correctIndex === oi;
           const isWrong = showResult && isSelected && !isCorrect;
 
-          let optionClass =
-            "border-[#E2E8F0] bg-white text-[#0F172A] hover:bg-[#F1F5F9]";
+          let borderColor = "var(--border)";
+          let bgColor = "var(--bg)";
+          let textColor = "var(--dark)";
+          let radioBorder = "#D1D5DB";
+          let radioFill = "transparent";
+
           if (showResult && isCorrect) {
-            optionClass = "border-emerald-400 bg-emerald-50 text-emerald-700";
+            borderColor = "#059669";
+            bgColor = "#F0FDF4";
+            textColor = "#065F46";
+            radioBorder = "#059669";
+            radioFill = "#059669";
           } else if (isWrong) {
-            optionClass = "border-red-400 bg-red-50 text-red-700";
+            borderColor = "#DC2626";
+            bgColor = "#FEF2F2";
+            textColor = "#991B1B";
+            radioBorder = "#DC2626";
+            radioFill = "#DC2626";
           } else if (!showResult && isSelected) {
-            optionClass = "border-[#4F46E5] bg-[#EEF2FF] text-[#4F46E5]";
+            borderColor = "var(--accent)";
+            bgColor = "var(--accent-light)";
+            textColor = "var(--accent)";
+            radioBorder = "var(--accent)";
+            radioFill = "var(--accent)";
           }
 
           return (
@@ -500,29 +1386,50 @@ function QuestionCard({
               key={oi}
               onClick={() => onSelect(questionIndex, oi)}
               disabled={showResult}
-              className={`flex items-center gap-2 p-2.5 rounded-lg border text-left text-xs transition-all ${optionClass}`}
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "7px",
+                padding: "9px 10px",
+                borderRadius: "9px",
+                border: `1.5px solid ${borderColor}`,
+                background: bgColor,
+                color: textColor,
+                fontSize: "11px",
+                textAlign: "left",
+                cursor: showResult ? "default" : "pointer",
+                fontFamily: "var(--font-ui)",
+                lineHeight: 1.4,
+                transition: "all 0.15s",
+              }}
             >
-              {/* Radio circle */}
+              {/* Radio */}
               <div
-                className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
-                  showResult && isCorrect
-                    ? "border-emerald-500 bg-emerald-500"
-                    : isWrong
-                      ? "border-red-400 bg-red-400"
-                      : !showResult && isSelected
-                        ? "border-[#4F46E5] bg-[#4F46E5]"
-                        : "border-[#CBD5E1]"
-                }`}
+                style={{
+                  width: "14px",
+                  height: "14px",
+                  borderRadius: "50%",
+                  border: `2px solid ${radioBorder}`,
+                  background: radioFill,
+                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginTop: "1px",
+                }}
               >
-                {(showResult && isCorrect) ||
-                (!showResult && isSelected) ||
-                isWrong ? (
-                  <div className="w-1.5 h-1.5 rounded-full bg-white" />
-                ) : null}
+                {(isSelected || (showResult && isCorrect)) && (
+                  <div
+                    style={{
+                      width: "5px",
+                      height: "5px",
+                      borderRadius: "50%",
+                      background: "#fff",
+                    }}
+                  />
+                )}
               </div>
-              <span
-                className={`leading-tight ${showResult && isCorrect ? "font-semibold" : ""}`}
-              >
+              <span style={{ fontWeight: showResult && isCorrect ? 600 : 400 }}>
                 {option}
               </span>
             </button>
@@ -530,16 +1437,21 @@ function QuestionCard({
         })}
       </div>
 
-      {/* Explanation — shown after submit */}
+      {/* Explanation */}
       {showResult && (
         <div
-          className={`mt-3 p-3 rounded-lg text-xs leading-relaxed ${
-            result?.isCorrect
-              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-              : "bg-red-50 text-red-700 border border-red-200"
-          }`}
+          style={{
+            marginTop: "10px",
+            padding: "10px 12px",
+            borderRadius: "9px",
+            background: result?.isCorrect ? "#F0FDF4" : "#FEF2F2",
+            border: `1px solid ${result?.isCorrect ? "#BBF7D0" : "#FECACA"}`,
+            fontSize: "11px",
+            color: result?.isCorrect ? "#065F46" : "#991B1B",
+            lineHeight: 1.6,
+          }}
         >
-          <span className="font-semibold">Explanation: </span>
+          <span style={{ fontWeight: 700 }}>Explanation: </span>
           {question.explanation}
         </div>
       )}
@@ -547,7 +1459,7 @@ function QuestionCard({
   );
 }
 
-// ─── Results Panel Component ──────────────────────────────────────────────────
+// ─── Results Panel ────────────────────────────────────────────────────────────
 
 function ResultsPanel({
   result,
@@ -557,61 +1469,146 @@ function ResultsPanel({
   onReset: () => void;
 }) {
   return (
-    <div className="rounded-xl border border-[#E2E8F0] bg-white p-5 space-y-4">
+    <div
+      style={{
+        borderRadius: "12px",
+        border: "1.5px solid var(--border)",
+        background: "var(--surface)",
+        padding: "20px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "14px",
+      }}
+    >
       {/* Score */}
-      <div className="text-center py-2">
-        <div className="text-4xl font-bold text-[#0F172A] mb-1">
+      <div style={{ textAlign: "center", padding: "8px 0" }}>
+        <div
+          style={{
+            fontFamily: "var(--font-display)",
+            fontSize: "42px",
+            fontWeight: 700,
+            color: "var(--dark)",
+            lineHeight: 1,
+          }}
+        >
           {result.score}
-          <span className="text-xl text-[#94A3B8]">/{result.total}</span>
+          <span
+            style={{ fontSize: "20px", color: "var(--muted)", fontWeight: 400 }}
+          >
+            /{result.total}
+          </span>
         </div>
-        <div className="text-sm text-[#64748B]">{result.message}</div>
+        <p
+          style={{ fontSize: "13px", color: "var(--muted)", margin: "6px 0 0" }}
+        >
+          {result.message}
+        </p>
       </div>
 
       {/* Mastery update */}
-      <div className="bg-[#F8FAFC] rounded-xl p-4 border border-[#E2E8F0]">
-        <div className="flex items-center gap-2 mb-3">
-          <TrendingUp className="w-4 h-4 text-[#4F46E5]" />
-          <span className="text-xs font-semibold text-[#0F172A] uppercase tracking-wide">
+      <div
+        style={{
+          background: "var(--bg)",
+          borderRadius: "10px",
+          padding: "14px",
+          border: "1px solid var(--border)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "5px",
+            marginBottom: "10px",
+          }}
+        >
+          <TrendingUp size={13} color="var(--accent)" strokeWidth={2} />
+          <span
+            style={{
+              fontSize: "10px",
+              fontWeight: 700,
+              color: "var(--accent)",
+              textTransform: "uppercase",
+              letterSpacing: "0.5px",
+            }}
+          >
             Mastery Update
           </span>
         </div>
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-sm text-[#0F172A] font-medium truncate pr-2">
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: "8px",
+          }}
+        >
+          <span
+            style={{ fontSize: "13px", fontWeight: 600, color: "var(--dark)" }}
+          >
             {result.mastery.topicName}
           </span>
           <span
-            className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${masteryColor(result.mastery.masteryLevel)}`}
+            style={{
+              fontSize: "10px",
+              fontWeight: 700,
+              padding: "2px 8px",
+              borderRadius: "99px",
+              color: MASTERY_COLORS[result.mastery.masteryLevel],
+              background: MASTERY_BG[result.mastery.masteryLevel],
+            }}
           >
-            {result.mastery.masteryLevel}
+            {masteryLabel(result.mastery.masteryLevel)}
           </span>
         </div>
-        {/* Progress bar */}
-        <div className="flex items-center gap-2">
-          <div className="flex-1 bg-[#E2E8F0] rounded-full h-2">
-            <div
-              className={`h-2 rounded-full transition-all duration-700 ${masteryBar(result.mastery.masteryLevel)}`}
-              style={{ width: `${result.mastery.newMastery * 100}%` }}
-            />
-          </div>
-          <span className="text-xs text-[#64748B] flex-shrink-0">
-            {Math.round(result.mastery.newMastery * 100)}%
-          </span>
+        <div
+          style={{
+            background: "var(--border)",
+            borderRadius: "99px",
+            height: "6px",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              height: "100%",
+              width: `${result.mastery.newMastery * 100}%`,
+              background: MASTERY_COLORS[result.mastery.masteryLevel],
+              borderRadius: "99px",
+              transition: "width 0.8s ease",
+            }}
+          />
         </div>
-        <div className="flex items-center gap-1 mt-2">
-          <span className="text-xs text-[#94A3B8]">
-            {Math.round(result.mastery.previousMastery * 100)}% →
+        <div
+          style={{
+            display: "flex",
+            gap: "4px",
+            marginTop: "6px",
+            fontSize: "11px",
+          }}
+        >
+          <span style={{ color: "var(--muted)" }}>
+            {Math.round(result.mastery.previousMastery * 100)}%
           </span>
-          <span className="text-xs font-medium text-[#4F46E5]">
+          <span style={{ color: "var(--muted)" }}>→</span>
+          <span
+            style={{
+              fontWeight: 700,
+              color: MASTERY_COLORS[result.mastery.masteryLevel],
+            }}
+          >
             {Math.round(result.mastery.newMastery * 100)}%
           </span>
           <span
-            className={`text-xs ml-1 ${
-              result.mastery.trend === "improving"
-                ? "text-emerald-600"
-                : result.mastery.trend === "declining"
-                  ? "text-red-500"
-                  : "text-[#64748B]"
-            }`}
+            style={{
+              color:
+                result.mastery.trend === "improving"
+                  ? "#059669"
+                  : result.mastery.trend === "declining"
+                    ? "#DC2626"
+                    : "var(--muted)",
+              marginLeft: "4px",
+            }}
           >
             · {result.mastery.trend}
           </span>
@@ -620,26 +1617,55 @@ function ResultsPanel({
 
       {/* Knowledge gaps */}
       {result.knowledgeGaps.length > 0 && (
-        <div className="bg-amber-50 rounded-xl p-4 border border-amber-200">
-          <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle className="w-4 h-4 text-amber-600" />
-            <span className="text-xs font-semibold text-amber-800 uppercase tracking-wide">
+        <div
+          style={{
+            background: "#FFFBEB",
+            borderRadius: "10px",
+            padding: "12px",
+            border: "1px solid #FDE68A",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              marginBottom: "8px",
+            }}
+          >
+            <AlertTriangle size={13} color="#D97706" strokeWidth={2} />
+            <span
+              style={{
+                fontSize: "10px",
+                fontWeight: 700,
+                color: "#D97706",
+                textTransform: "uppercase",
+                letterSpacing: "0.5px",
+              }}
+            >
               Knowledge Gaps
             </span>
           </div>
-          <p className="text-xs text-amber-700 mb-2">
-            Strengthen these prerequisite topics:
-          </p>
-          <div className="space-y-1.5">
+          <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
             {result.knowledgeGaps.map((gap) => (
               <div
                 key={gap.topicId}
-                className="flex items-center justify-between"
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
               >
-                <span className="text-xs text-amber-800 font-medium">
+                <span
+                  style={{
+                    fontSize: "12px",
+                    color: "#92400E",
+                    fontWeight: 500,
+                  }}
+                >
                   {gap.topicName}
                 </span>
-                <span className="text-xs text-amber-600">
+                <span style={{ fontSize: "11px", color: "#D97706" }}>
                   {Math.round(gap.mastery * 100)}%
                 </span>
               </div>
@@ -648,25 +1674,53 @@ function ResultsPanel({
         </div>
       )}
 
-      {/* Prerequisite boosts */}
+      {/* Prereq boosts */}
       {result.prerequisiteBoosts.length > 0 && (
-        <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
-          <div className="flex items-center gap-2 mb-2">
-            <Brain className="w-4 h-4 text-blue-600" />
-            <span className="text-xs font-semibold text-blue-800 uppercase tracking-wide">
+        <div
+          style={{
+            background: "#EFF6FF",
+            borderRadius: "10px",
+            padding: "12px",
+            border: "1px solid #BFDBFE",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              marginBottom: "8px",
+            }}
+          >
+            <Brain size={13} color="#2563EB" strokeWidth={2} />
+            <span
+              style={{
+                fontSize: "10px",
+                fontWeight: 700,
+                color: "#2563EB",
+                textTransform: "uppercase",
+                letterSpacing: "0.5px",
+              }}
+            >
               Related Topics Boosted
             </span>
           </div>
-          <div className="space-y-1.5">
+          <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
             {result.prerequisiteBoosts.map((boost) => (
               <div
                 key={boost.topicId}
-                className="flex items-center justify-between"
+                style={{ display: "flex", justifyContent: "space-between" }}
               >
-                <span className="text-xs text-blue-800 font-medium">
+                <span
+                  style={{
+                    fontSize: "12px",
+                    color: "#1E40AF",
+                    fontWeight: 500,
+                  }}
+                >
                   {boost.topicName}
                 </span>
-                <span className="text-xs text-blue-600">
+                <span style={{ fontSize: "11px", color: "#2563EB" }}>
                   +
                   {Math.round((boost.newMastery - boost.previousMastery) * 100)}
                   %
@@ -677,12 +1731,27 @@ function ResultsPanel({
         </div>
       )}
 
-      {/* Try another topic */}
       <button
         onClick={onReset}
-        className="w-full flex items-center justify-center gap-2 bg-[#4F46E5] hover:bg-[#4338CA] text-white font-semibold py-3 rounded-xl transition-colors text-sm"
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "7px",
+          padding: "12px",
+          borderRadius: "10px",
+          border: "none",
+          background: "var(--accent)",
+          color: "#fff",
+          fontSize: "13px",
+          fontWeight: 600,
+          cursor: "pointer",
+          fontFamily: "var(--font-ui)",
+          boxShadow: "0 2px 10px rgba(232,68,106,0.3)",
+        }}
       >
-        <RotateCcw className="w-4 h-4" />
+        <RotateCcw size={13} strokeWidth={2} />
         Try Another Topic
       </button>
     </div>
