@@ -4,6 +4,7 @@ import { useStudentStore } from "../store/student.store";
 import { graphApi } from "../lib/api";
 import type { StudentGraph, GraphNode } from "../lib/api";
 import ForceGraph2D from "react-force-graph-2d";
+import { redirect } from "@tanstack/react-router";
 import {
   Brain,
   TrendingUp,
@@ -13,33 +14,21 @@ import {
   RefreshCw,
   Info,
 } from "lucide-react";
-import { redirect } from "@tanstack/react-router";
+
 export const Route = createFileRoute("/graph")({
   beforeLoad: () => {
     const student = useStudentStore.getState().student;
-    if (!student) {
-      throw redirect({ to: "/" });
-    }
+    if (!student) throw redirect({ to: "/" });
   },
   component: GraphPage,
 });
 
-// ─── Color helpers ────────────────────────────────────────────────────────────
-
 const NODE_COLORS: Record<string, string> = {
-  not_started: "#94A3B8",
+  not_started: "#D1B8BE",
   struggling: "#EF4444",
   developing: "#F97316",
   proficient: "#EAB308",
   mastered: "#059669",
-};
-
-const NODE_COLORS_LIGHT: Record<string, string> = {
-  not_started: "#F1F5F9",
-  struggling: "#FEF2F2",
-  developing: "#FFF7ED",
-  proficient: "#FEFCE8",
-  mastered: "#ECFDF5",
 };
 
 const MASTERY_LABELS: Record<string, string> = {
@@ -50,46 +39,24 @@ const MASTERY_LABELS: Record<string, string> = {
   mastered: "Mastered",
 };
 
-const getMasteryColor = (level: string) => NODE_COLORS[level] ?? "#94A3B8";
-const getNodeSize = (mastery: number) => 4 + mastery * 8;
+const MASTERY_COLORS: Record<string, string> = {
+  mastered: "#059669",
+  proficient: "#D97706",
+  developing: "#2563EB",
+  struggling: "#DC2626",
+  not_started: "#9CA3AF",
+};
 
-// ─── Stat Card ────────────────────────────────────────────────────────────────
-
-function StatCard({
-  label,
-  value,
-  icon,
-  color = "text-[#4F46E5]",
-  bg = "bg-[#EEF2FF]",
-}: {
-  label: string;
-  value: string | number;
-  icon: React.ReactNode;
-  color?: string;
-  bg?: string;
-}) {
-  return (
-    <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 flex items-center gap-3">
-      <div
-        className={`w-9 h-9 ${bg} rounded-lg flex items-center justify-center flex-shrink-0`}
-      >
-        <div className={color}>{icon}</div>
-      </div>
-      <div>
-        <div className="text-lg font-bold text-[#0F172A] leading-none">
-          {value}
-        </div>
-        <div className="text-xs text-[#64748B] mt-0.5">{label}</div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Main Component ───────────────────────────────────────────────────────────
+const MASTERY_BG: Record<string, string> = {
+  mastered: "#ECFDF5",
+  proficient: "#FFFBEB",
+  developing: "#EFF6FF",
+  struggling: "#FEF2F2",
+  not_started: "#F9FAFB",
+};
 
 function GraphPage() {
   const student = useStudentStore((s) => s.student);
-  const navigate = useNavigate();
   const graphRef = useRef<any>(null);
 
   const [graph, setGraph] = useState<StudentGraph | null>(null);
@@ -99,12 +66,6 @@ function GraphPage() {
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Redirect if not logged in
-  useEffect(() => {
-    if (!student) navigate({ to: "/" });
-  }, [student, navigate]);
-
-  // Measure container dimensions
   useEffect(() => {
     const measure = () => {
       if (containerRef.current) {
@@ -119,7 +80,6 @@ function GraphPage() {
     return () => window.removeEventListener("resize", measure);
   }, []);
 
-  // Fetch graph data
   const fetchGraph = useCallback(async () => {
     if (!student) return;
     setLoading(true);
@@ -142,86 +102,72 @@ function GraphPage() {
   useEffect(() => {
     fetchGraph();
   }, [fetchGraph]);
+
   useEffect(() => {
     const handleFocus = () => fetchGraph();
     window.addEventListener("focus", handleFocus);
     return () => window.removeEventListener("focus", handleFocus);
   }, [fetchGraph]);
 
-  // Transform data for react-force-graph
   const graphData = graph
     ? {
         nodes: graph.nodes.map((n) => ({
           ...n,
-          // react-force-graph needs id at top level
-          label: n.name,
-          color: getMasteryColor(n.masteryLevel),
-          size: getNodeSize(n.mastery),
+          color: NODE_COLORS[n.masteryLevel] ?? "#D1B8BE",
+          size: 4 + n.mastery * 8,
         })),
         links: graph.edges.map((e) => ({
           source: e.source,
           target: e.target,
           type: e.type,
-          color: e.type === "REQUIRES" ? "#CBD5E1" : "#E2E8F0",
+          color: e.type === "REQUIRES" ? "#E5C5CC" : "#EDD9DE",
         })),
       }
     : { nodes: [], links: [] };
 
-  // Handle node click
   const handleNodeClick = useCallback(
     (node: any) => {
-      // node from force-graph has the original data spread onto it
-      // so node.id directly matches our GraphNode id
       const fullNode = graph?.nodes.find((n) => n.id === node.id);
-      if (fullNode) {
-        setSelectedNode(fullNode);
-      } else {
-        // fallback — use node data directly
-        setSelectedNode(node as GraphNode);
-      }
+      if (fullNode) setSelectedNode(fullNode);
+      else setSelectedNode(node as GraphNode);
     },
     [graph],
   );
 
-  // Custom node canvas renderer
   const paintNode = useCallback(
     (node: any, ctx: CanvasRenderingContext2D) => {
-      const size = node.size ?? 6;
-      const color = node.color ?? "#94A3B8";
+      const size = node.size ?? 5;
+      const color = node.color ?? "#D1B8BE";
       const isSelected = selectedNode?.id === node.id;
 
-      // Outer glow for selected
       if (isSelected) {
         ctx.beginPath();
-        ctx.arc(node.x, node.y, size + 4, 0, 2 * Math.PI);
-        ctx.fillStyle = color + "33";
+        ctx.arc(node.x, node.y, size + 5, 0, 2 * Math.PI);
+        ctx.fillStyle = color + "25";
         ctx.fill();
       }
 
-      // Node circle
       ctx.beginPath();
       ctx.arc(node.x, node.y, size, 0, 2 * Math.PI);
       ctx.fillStyle = color;
       ctx.fill();
 
-      // White border
       ctx.beginPath();
       ctx.arc(node.x, node.y, size, 0, 2 * Math.PI);
-      ctx.strokeStyle = isSelected ? "#0F172A" : "rgba(255,255,255,0.6)";
+      ctx.strokeStyle = isSelected ? "#1A0A0E" : "rgba(255,255,255,0.7)";
       ctx.lineWidth = isSelected ? 2 : 1;
       ctx.stroke();
 
-      // Label for attempted nodes only
       if (node.attempts > 0 || isSelected) {
         const label =
-          node.name.length > 20
-            ? node.name.substring(0, 18) + "..."
+          node.name.length > 22
+            ? node.name.substring(0, 20) + "..."
             : node.name;
-        ctx.font = `${isSelected ? "bold " : ""}9px Inter, sans-serif`;
-        ctx.fillStyle = "#0F172A";
+        ctx.font = `${isSelected ? "bold " : ""}8px Plus Jakarta Sans, sans-serif`;
+        ctx.fillStyle = "#1A0A0E";
         ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(label, node.x, node.y + size + 8);
+        ctx.textBaseline = "top";
+        ctx.fillText(label, node.x, node.y + size + 4);
       }
     },
     [selectedNode],
@@ -230,22 +176,60 @@ function GraphPage() {
   if (!student) return null;
 
   return (
-    <div className="h-[calc(100vh-64px)] flex overflow-hidden">
-      {/* ── Left: Force Graph ──────────────────────────────────────────────── */}
+    <div
+      style={{
+        height: "calc(100vh - 52px)",
+        display: "flex",
+        overflow: "hidden",
+        fontFamily: "var(--font-ui)",
+      }}
+    >
+      {/* ── Force Graph ── */}
       <div
         ref={containerRef}
-        className="flex-[7] relative bg-[#F8FAFC] overflow-hidden"
+        style={{
+          flex: 1,
+          position: "relative",
+          background: "#FFF8F9",
+          overflow: "hidden",
+        }}
       >
         {loading ? (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-center">
-              <div className="w-12 h-12 bg-[#EEF2FF] rounded-2xl flex items-center justify-center mx-auto mb-3">
-                <Brain className="w-6 h-6 text-[#4F46E5] animate-pulse" />
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <div style={{ textAlign: "center" }}>
+              <div
+                style={{
+                  width: "48px",
+                  height: "48px",
+                  background: "var(--accent-light)",
+                  borderRadius: "14px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  margin: "0 auto 12px",
+                }}
+              >
+                <Brain size={24} color="var(--accent)" strokeWidth={2} />
               </div>
-              <p className="text-sm font-medium text-[#0F172A]">
+              <p
+                style={{
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  color: "var(--dark)",
+                  margin: "0 0 4px",
+                }}
+              >
                 Loading your knowledge graph...
               </p>
-              <p className="text-xs text-[#64748B] mt-1">
+              <p style={{ fontSize: "12px", color: "var(--muted)", margin: 0 }}>
                 Fetching {student.name}'s learning data
               </p>
             </div>
@@ -261,7 +245,7 @@ function GraphPage() {
                 nodeCanvasObject={paintNode}
                 nodeCanvasObjectMode={() => "replace"}
                 nodePointerAreaPaint={(node: any, color, ctx) => {
-                  const size = node.size ?? 6;
+                  const size = node.size ?? 5;
                   ctx.fillStyle = color;
                   ctx.beginPath();
                   ctx.arc(node.x, node.y, size + 2, 0, 2 * Math.PI);
@@ -269,14 +253,14 @@ function GraphPage() {
                 }}
                 linkColor={(link: any) => link.color}
                 linkWidth={(link: any) =>
-                  link.type === "REQUIRES" ? 1.5 : 0.8
+                  link.type === "REQUIRES" ? 1.2 : 0.6
                 }
                 linkDirectionalArrowLength={(link: any) =>
-                  link.type === "REQUIRES" ? 4 : 0
+                  link.type === "REQUIRES" ? 3 : 0
                 }
                 linkDirectionalArrowRelPos={1}
                 onNodeClick={handleNodeClick}
-                backgroundColor="#F8FAFC"
+                backgroundColor="#FFF8F9"
                 cooldownTicks={100}
                 d3AlphaDecay={0.02}
                 d3VelocityDecay={0.3}
@@ -285,200 +269,395 @@ function GraphPage() {
             )}
 
             {/* Legend */}
-            <div className="absolute bottom-4 left-4 bg-white rounded-xl border border-[#E2E8F0] p-3 shadow-sm">
-              <div className="text-xs font-semibold text-[#64748B] uppercase tracking-wide mb-2">
+            <div
+              style={{
+                position: "absolute",
+                bottom: "16px",
+                left: "16px",
+                background: "var(--surface)",
+                borderRadius: "12px",
+                border: "1px solid var(--border)",
+                padding: "12px 14px",
+                boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  color: "var(--muted)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.8px",
+                  marginBottom: "8px",
+                }}
+              >
                 Mastery Level
               </div>
-              <div className="space-y-1.5">
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: "5px" }}
+              >
                 {Object.entries(NODE_COLORS).map(([level, color]) => (
-                  <div key={level} className="flex items-center gap-2">
+                  <div
+                    key={level}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "7px",
+                    }}
+                  >
                     <div
-                      className="w-3 h-3 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: color }}
+                      style={{
+                        width: "10px",
+                        height: "10px",
+                        borderRadius: "50%",
+                        background: color,
+                        flexShrink: 0,
+                      }}
                     />
-                    <span className="text-xs text-[#0F172A]">
+                    <span style={{ fontSize: "11px", color: "var(--dark)" }}>
                       {MASTERY_LABELS[level]}
                     </span>
                   </div>
                 ))}
               </div>
-              <div className="border-t border-[#E2E8F0] mt-2 pt-2 space-y-1">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-px bg-[#CBD5E1]" />
-                  <span className="text-xs text-[#64748B]">Requires</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-px bg-[#E2E8F0] border-dashed border-t" />
-                  <span className="text-xs text-[#64748B]">Related to</span>
-                </div>
-              </div>
             </div>
 
             {/* Click hint */}
             {!selectedNode && (
-              <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-white/80 backdrop-blur-sm rounded-full px-4 py-2 border border-[#E2E8F0] shadow-sm">
-                <p className="text-xs text-[#64748B] flex items-center gap-1.5">
-                  <Info className="w-3 h-3" />
+              <div
+                style={{
+                  position: "absolute",
+                  top: "16px",
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  background: "rgba(255,255,255,0.9)",
+                  backdropFilter: "blur(8px)",
+                  borderRadius: "99px",
+                  border: "1px solid var(--border)",
+                  padding: "6px 14px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                }}
+              >
+                <Info size={12} color="var(--muted)" strokeWidth={2} />
+                <span style={{ fontSize: "12px", color: "var(--muted)" }}>
                   Click any node to see topic details
-                </p>
+                </span>
               </div>
             )}
           </>
         )}
       </div>
 
-      {/* ── Right: Stats Sidebar ───────────────────────────────────────────── */}
-      <div className="w-80 flex-shrink-0 border-l border-[#E2E8F0] bg-white overflow-y-auto">
-        <div className="p-5 space-y-5">
+      {/* ── Sidebar ── */}
+      <div
+        style={{
+          width: "300px",
+          flexShrink: 0,
+          borderLeft: "1px solid var(--border)",
+          background: "var(--surface)",
+          overflowY: "auto",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <div
+          style={{
+            padding: "20px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "20px",
+          }}
+        >
           {/* Header */}
-          <div className="flex items-center justify-between">
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
             <div>
-              <h2 className="font-bold text-[#0F172A] capitalize">
+              <h2
+                style={{
+                  fontSize: "15px",
+                  fontWeight: 700,
+                  color: "var(--dark)",
+                  margin: "0 0 2px",
+                  textTransform: "capitalize",
+                }}
+              >
                 {student.name}'s Graph
               </h2>
-              <p className="text-xs text-[#64748B]">Science · Class 6–10</p>
+              <p style={{ fontSize: "11px", color: "var(--muted)", margin: 0 }}>
+                Science · Class 6–10
+              </p>
             </div>
             <button
               onClick={fetchGraph}
-              className="p-2 rounded-lg hover:bg-[#F1F5F9] transition-colors text-[#64748B]"
+              style={{
+                width: "32px",
+                height: "32px",
+                borderRadius: "8px",
+                border: "1px solid var(--border)",
+                background: "var(--bg)",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--muted)",
+              }}
               title="Refresh"
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw size={13} strokeWidth={2} />
             </button>
           </div>
 
-          {/* Stats grid */}
+          {/* Stats */}
           {graph && (
-            <div className="grid grid-cols-2 gap-2">
-              <StatCard
-                label="Total Topics"
-                value={graph.stats.totalTopics}
-                icon={<BookOpen className="w-4 h-4" />}
-                color="text-[#4F46E5]"
-                bg="bg-[#EEF2FF]"
-              />
-              <StatCard
-                label="Attempted"
-                value={graph.stats.attempted}
-                icon={<Target className="w-4 h-4" />}
-                color="text-blue-600"
-                bg="bg-blue-50"
-              />
-              <StatCard
-                label="Mastered"
-                value={graph.stats.mastered}
-                icon={<TrendingUp className="w-4 h-4" />}
-                color="text-emerald-600"
-                bg="bg-emerald-50"
-              />
-              <StatCard
-                label="Avg Mastery"
-                value={`${Math.round(graph.stats.averageMastery * 100)}%`}
-                icon={<Brain className="w-4 h-4" />}
-                color="text-orange-600"
-                bg="bg-orange-50"
-              />
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "8px",
+              }}
+            >
+              {[
+                {
+                  label: "Topics",
+                  value: graph.stats.totalTopics,
+                  icon: <BookOpen size={14} />,
+                  color: "#6366F1",
+                },
+                {
+                  label: "Attempted",
+                  value: graph.stats.attempted,
+                  icon: <Target size={14} />,
+                  color: "var(--accent)",
+                },
+                {
+                  label: "Mastered",
+                  value: graph.stats.mastered,
+                  icon: <TrendingUp size={14} />,
+                  color: "#059669",
+                },
+                {
+                  label: "Avg Mastery",
+                  value: `${Math.round(graph.stats.averageMastery * 100)}%`,
+                  icon: <Brain size={14} />,
+                  color: "#D97706",
+                },
+              ].map((stat) => (
+                <div
+                  key={stat.label}
+                  style={{
+                    background: "var(--bg)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "10px",
+                    padding: "10px 12px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "28px",
+                      height: "28px",
+                      borderRadius: "8px",
+                      background: stat.color + "18",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: stat.color,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {stat.icon}
+                  </div>
+                  <div>
+                    <div
+                      style={{
+                        fontSize: "16px",
+                        fontWeight: 700,
+                        color: "var(--dark)",
+                        lineHeight: 1,
+                      }}
+                    >
+                      {stat.value}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "10px",
+                        color: "var(--muted)",
+                        marginTop: "1px",
+                      }}
+                    >
+                      {stat.label}
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
-          {/* Selected node details */}
+          {/* Selected node */}
           {selectedNode && (
             <div>
-              <div className="text-xs font-semibold text-[#64748B] uppercase tracking-wide mb-2">
+              <div
+                style={{
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  color: "var(--muted)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.8px",
+                  marginBottom: "8px",
+                }}
+              >
                 Selected Topic
               </div>
               <div
-                className="rounded-xl border p-4"
                 style={{
-                  borderColor:
-                    getMasteryColor(selectedNode.masteryLevel) + "66",
-                  backgroundColor: NODE_COLORS_LIGHT[selectedNode.masteryLevel],
+                  borderRadius: "12px",
+                  border: `1.5px solid ${MASTERY_COLORS[selectedNode.masteryLevel]}40`,
+                  background: MASTERY_BG[selectedNode.masteryLevel],
+                  padding: "14px",
                 }}
               >
-                <div className="flex items-start justify-between gap-2 mb-3">
-                  <h3 className="text-sm font-bold text-[#0F172A] leading-snug">
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    justifyContent: "space-between",
+                    gap: "8px",
+                    marginBottom: "10px",
+                  }}
+                >
+                  <h3
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: 700,
+                      color: "var(--dark)",
+                      margin: 0,
+                      lineHeight: 1.3,
+                    }}
+                  >
                     {selectedNode.name}
                   </h3>
                   <span
-                    className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 text-white"
                     style={{
-                      backgroundColor: getMasteryColor(
-                        selectedNode.masteryLevel,
-                      ),
+                      fontSize: "10px",
+                      fontWeight: 700,
+                      padding: "2px 8px",
+                      borderRadius: "99px",
+                      color: "#fff",
+                      background: MASTERY_COLORS[selectedNode.masteryLevel],
+                      flexShrink: 0,
                     }}
                   >
                     {MASTERY_LABELS[selectedNode.masteryLevel]}
                   </span>
                 </div>
 
-                <div className="space-y-2">
-                  {/* Mastery bar */}
-                  <div>
-                    <div className="flex justify-between text-xs text-[#64748B] mb-1">
-                      <span>Mastery</span>
-                      <span>{Math.round(selectedNode.mastery * 100)}%</span>
-                    </div>
-                    <div className="w-full bg-white rounded-full h-2 border border-[#E2E8F0]">
-                      <div
-                        className="h-2 rounded-full transition-all duration-700"
-                        style={{
-                          width: `${selectedNode.mastery * 100}%`,
-                          backgroundColor: getMasteryColor(
-                            selectedNode.masteryLevel,
-                          ),
-                        }}
-                      />
-                    </div>
+                {/* Mastery bar */}
+                <div style={{ marginBottom: "10px" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      fontSize: "10px",
+                      color: "var(--muted)",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    <span>Mastery</span>
+                    <span>{Math.round(selectedNode.mastery * 100)}%</span>
                   </div>
-
-                  {/* Details */}
-                  <div className="grid grid-cols-2 gap-2 pt-1">
-                    <div className="bg-white rounded-lg p-2 border border-[#E2E8F0]">
-                      <div className="text-xs text-[#64748B]">Attempts</div>
-                      <div className="text-sm font-bold text-[#0F172A]">
-                        {selectedNode.attempts}
-                      </div>
-                    </div>
-                    <div className="bg-white rounded-lg p-2 border border-[#E2E8F0]">
-                      <div className="text-xs text-[#64748B]">Class</div>
-                      <div className="text-sm font-bold text-[#0F172A]">
-                        {selectedNode.classLevel}
-                      </div>
-                    </div>
+                  <div
+                    style={{
+                      background: "rgba(255,255,255,0.6)",
+                      borderRadius: "99px",
+                      height: "5px",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div
+                      style={{
+                        height: "100%",
+                        width: `${selectedNode.mastery * 100}%`,
+                        background: MASTERY_COLORS[selectedNode.masteryLevel],
+                        borderRadius: "99px",
+                        transition: "width 0.6s ease",
+                      }}
+                    />
                   </div>
-
-                  {selectedNode.trend && (
-                    <div className="flex items-center gap-1.5 text-xs">
-                      <TrendingUp className="w-3 h-3 text-[#64748B]" />
-                      <span className="text-[#64748B]">Trend:</span>
-                      <span
-                        className={`font-semibold ${
-                          selectedNode.trend === "improving"
-                            ? "text-emerald-600"
-                            : selectedNode.trend === "declining"
-                              ? "text-red-500"
-                              : "text-[#64748B]"
-                        }`}
-                      >
-                        {selectedNode.trend}
-                      </span>
-                    </div>
-                  )}
-
-                  {selectedNode.lastAttempted && (
-                    <div className="text-xs text-[#94A3B8]">
-                      Last attempted:{" "}
-                      {new Date(selectedNode.lastAttempted).toLocaleDateString(
-                        "en-IN",
-                        {
-                          day: "numeric",
-                          month: "short",
-                          year: "numeric",
-                        },
-                      )}
-                    </div>
-                  )}
                 </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: "6px",
+                  }}
+                >
+                  {[
+                    { label: "Attempts", value: selectedNode.attempts },
+                    { label: "Class", value: selectedNode.classLevel },
+                  ].map((item) => (
+                    <div
+                      key={item.label}
+                      style={{
+                        background: "rgba(255,255,255,0.7)",
+                        borderRadius: "8px",
+                        padding: "8px 10px",
+                        border: "1px solid rgba(255,255,255,0.8)",
+                      }}
+                    >
+                      <div style={{ fontSize: "10px", color: "var(--muted)" }}>
+                        {item.label}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "14px",
+                          fontWeight: 700,
+                          color: "var(--dark)",
+                        }}
+                      >
+                        {item.value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {selectedNode.trend && (
+                  <div
+                    style={{
+                      marginTop: "8px",
+                      fontSize: "11px",
+                      color: "var(--muted)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "4px",
+                    }}
+                  >
+                    <TrendingUp size={11} strokeWidth={2} />
+                    Trend:
+                    <span
+                      style={{
+                        fontWeight: 600,
+                        color:
+                          selectedNode.trend === "improving"
+                            ? "#059669"
+                            : selectedNode.trend === "declining"
+                              ? "#DC2626"
+                              : "var(--muted)",
+                      }}
+                    >
+                      {selectedNode.trend}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -486,32 +665,72 @@ function GraphPage() {
           {/* Recommendations */}
           {recommendations.length > 0 && (
             <div>
-              <div className="flex items-center gap-2 mb-2">
-                <Sparkles className="w-3.5 h-3.5 text-[#4F46E5]" />
-                <span className="text-xs font-semibold text-[#64748B] uppercase tracking-wide">
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                  marginBottom: "8px",
+                }}
+              >
+                <Sparkles size={12} color="var(--accent)" strokeWidth={2} />
+                <span
+                  style={{
+                    fontSize: "10px",
+                    fontWeight: 700,
+                    color: "var(--muted)",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.8px",
+                  }}
+                >
                   Study Next
                 </span>
               </div>
-              <div className="space-y-2">
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: "6px" }}
+              >
                 {recommendations.map((rec: any) => (
                   <div
                     key={rec.id}
-                    className="bg-[#F8FAFC] rounded-xl border border-[#E2E8F0] p-3 flex items-center justify-between"
+                    style={{
+                      background: "var(--bg)",
+                      border: "1px solid var(--border)",
+                      borderRadius: "10px",
+                      padding: "10px 12px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}
                   >
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-[#0F172A] truncate">
+                    <div>
+                      <p
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: 600,
+                          color: "var(--dark)",
+                          margin: "0 0 2px",
+                        }}
+                      >
                         {rec.name}
                       </p>
-                      <p className="text-xs text-[#64748B]">
+                      <p
+                        style={{
+                          fontSize: "10px",
+                          color: "var(--muted)",
+                          margin: 0,
+                        }}
+                      >
                         Class {rec.classLevel}
                       </p>
                     </div>
                     <span
-                      className="text-xs font-semibold px-2 py-0.5 rounded-full ml-2 flex-shrink-0"
                       style={{
-                        color: getMasteryColor(rec.masteryLevel),
-                        backgroundColor:
-                          getMasteryColor(rec.masteryLevel) + "20",
+                        fontSize: "10px",
+                        fontWeight: 600,
+                        padding: "2px 7px",
+                        borderRadius: "99px",
+                        color: MASTERY_COLORS[rec.masteryLevel],
+                        background: MASTERY_BG[rec.masteryLevel],
                       }}
                     >
                       {MASTERY_LABELS[rec.masteryLevel]}
@@ -525,10 +744,21 @@ function GraphPage() {
           {/* Mastery breakdown */}
           {graph && (
             <div>
-              <div className="text-xs font-semibold text-[#64748B] uppercase tracking-wide mb-2">
+              <div
+                style={{
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  color: "var(--muted)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.8px",
+                  marginBottom: "8px",
+                }}
+              >
                 Mastery Breakdown
               </div>
-              <div className="space-y-2">
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: "6px" }}
+              >
                 {Object.entries(NODE_COLORS).map(([level, color]) => {
                   const count = graph.nodes.filter(
                     (n) => n.masteryLevel === level,
@@ -538,16 +768,35 @@ function GraphPage() {
                   );
                   return (
                     <div key={level}>
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className="text-[#0F172A] font-medium">
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          fontSize: "11px",
+                          marginBottom: "3px",
+                        }}
+                      >
+                        <span style={{ fontWeight: 500, color: "var(--dark)" }}>
                           {MASTERY_LABELS[level]}
                         </span>
-                        <span className="text-[#64748B]">{count}</span>
+                        <span style={{ color: "var(--muted)" }}>{count}</span>
                       </div>
-                      <div className="w-full bg-[#F1F5F9] rounded-full h-1.5">
+                      <div
+                        style={{
+                          background: "var(--border)",
+                          borderRadius: "99px",
+                          height: "4px",
+                          overflow: "hidden",
+                        }}
+                      >
                         <div
-                          className="h-1.5 rounded-full transition-all duration-700"
-                          style={{ width: `${pct}%`, backgroundColor: color }}
+                          style={{
+                            height: "100%",
+                            width: `${pct}%`,
+                            background: color,
+                            borderRadius: "99px",
+                            transition: "width 0.6s ease",
+                          }}
                         />
                       </div>
                     </div>
