@@ -3,9 +3,10 @@ import {
   Outlet,
   Link,
   useLocation,
+  useNavigate,
 } from "@tanstack/react-router";
 import { useStudentStore } from "../store/student.store";
-import { BookOpen, Brain, LogOut, Sprout } from "lucide-react";
+import { BookOpen, Brain, LogOut, FlaskConical } from "lucide-react";
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -14,9 +15,17 @@ export const Route = createRootRoute({
 function RootLayout() {
   const student = useStudentStore((s) => s.student);
   const clearStudent = useStudentStore((s) => s.clearStudent);
+  const classLevel = useStudentStore((s) => s.classLevel);
+  const setClassLevel = useStudentStore((s) => s.setClassLevel);
   const location = useLocation();
+  const navigate = useNavigate();
 
   const isActive = (path: string) => location.pathname === path;
+
+  const handleSignOut = () => {
+    clearStudent();
+    navigate({ to: "/" });
+  };
 
   return (
     <div
@@ -62,7 +71,7 @@ function RootLayout() {
               justifyContent: "center",
             }}
           >
-            <Sprout size={14} color="#fff" strokeWidth={2.5} />
+            <FlaskConical size={14} color="#fff" strokeWidth={2.5} />
           </div>
           <span
             style={{
@@ -80,6 +89,7 @@ function RootLayout() {
         {/* Right side */}
         {student && (
           <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
+            {/* Nav links */}
             <NavLink
               to="/learn"
               active={isActive("/learn")}
@@ -99,7 +109,45 @@ function RootLayout() {
                 width: "1px",
                 height: "18px",
                 background: "rgba(255,255,255,0.1)",
-                margin: "0 8px",
+                margin: "0 6px",
+              }}
+            />
+
+            {/* Class switcher */}
+            <div style={{ display: "flex", gap: "3px" }}>
+              {([11, 12] as const).map((cls) => (
+                <button
+                  key={cls}
+                  onClick={() => setClassLevel(cls)}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: "6px",
+                    border: "none",
+                    background:
+                      classLevel === cls
+                        ? "rgba(232,68,106,0.3)"
+                        : "transparent",
+                    color:
+                      classLevel === cls ? "#fff" : "rgba(255,255,255,0.4)",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    fontFamily: "var(--font-ui)",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  Class {cls}
+                </button>
+              ))}
+            </div>
+
+            {/* Divider */}
+            <div
+              style={{
+                width: "1px",
+                height: "18px",
+                background: "rgba(255,255,255,0.1)",
+                margin: "0 6px",
               }}
             />
 
@@ -145,7 +193,7 @@ function RootLayout() {
 
             {/* Sign out */}
             <button
-              onClick={clearStudent}
+              onClick={handleSignOut}
               title="Sign out"
               onMouseEnter={(e) => {
                 (e.currentTarget as HTMLButtonElement).style.color = "#F87171";

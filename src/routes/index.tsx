@@ -3,7 +3,14 @@ import { useState, useEffect } from "react";
 import { useStudentStore } from "../store/student.store";
 import { studentApi } from "../lib/api";
 import toast from "react-hot-toast";
-import { ArrowRight, Sprout, BookOpen, Brain, TrendingUp } from "lucide-react";
+import {
+  ArrowRight,
+  Sprout,
+  BookOpen,
+  Brain,
+  TrendingUp,
+  FlaskConical,
+} from "lucide-react";
 
 export const Route = createFileRoute("/")({
   component: StudentEntry,
@@ -11,8 +18,10 @@ export const Route = createFileRoute("/")({
 
 function StudentEntry() {
   const [name, setName] = useState("");
+  const [classLevel, setClassLevel] = useState<11 | 12>(12);
   const [loading, setLoading] = useState(false);
   const setStudent = useStudentStore((s) => s.setStudent);
+  const setClassLevelStore = useStudentStore((s) => s.setClassLevel);
   const student = useStudentStore((s) => s.student);
   const navigate = useNavigate();
 
@@ -29,6 +38,7 @@ function StudentEntry() {
     try {
       const s = await studentApi.findOrCreate(name.trim());
       setStudent(s);
+      setClassLevelStore(classLevel);
       navigate({ to: "/learn" });
     } catch {
       toast.error("Something went wrong. Try again.");
@@ -49,7 +59,7 @@ function StudentEntry() {
       }}
     >
       <div style={{ width: "100%", maxWidth: "420px" }}>
-        {/* Hero icon */}
+        {/* Hero */}
         <div style={{ textAlign: "center", marginBottom: "32px" }}>
           <div
             style={{
@@ -64,7 +74,7 @@ function StudentEntry() {
               boxShadow: "0 8px 24px rgba(232,68,106,0.25)",
             }}
           >
-            <Sprout size={28} color="#fff" strokeWidth={2} />
+            <FlaskConical size={28} color="#fff" strokeWidth={2} />
           </div>
           <h1
             style={{
@@ -86,7 +96,7 @@ function StudentEntry() {
               lineHeight: 1.6,
             }}
           >
-            Your personal knowledge graph grows smarter every time you learn.
+            Master JEE & NEET Chemistry through adaptive learning
           </p>
         </div>
 
@@ -100,6 +110,7 @@ function StudentEntry() {
             boxShadow: "0 2px 16px rgba(232,68,106,0.06)",
           }}
         >
+          {/* Name input */}
           <label
             style={{
               display: "block",
@@ -109,9 +120,8 @@ function StudentEntry() {
               marginBottom: "8px",
             }}
           >
-            What's your name?
+            Your name
           </label>
-
           <input
             type="text"
             placeholder="e.g. Rahul, Priya, Arjun..."
@@ -128,14 +138,93 @@ function StudentEntry() {
               color: "var(--dark)",
               background: "var(--bg)",
               outline: "none",
-              marginBottom: "16px",
+              marginBottom: "20px",
               fontFamily: "var(--font-ui)",
               transition: "border-color 0.2s",
+              boxSizing: "border-box",
             }}
             onFocus={(e) => (e.target.style.borderColor = "var(--accent)")}
             onBlur={(e) => (e.target.style.borderColor = "var(--border)")}
           />
 
+          {/* Class selector */}
+          <label
+            style={{
+              display: "block",
+              fontSize: "13px",
+              fontWeight: 600,
+              color: "var(--dark)",
+              marginBottom: "8px",
+            }}
+          >
+            Your class
+          </label>
+          <div style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
+            {([11, 12] as const).map((cls) => (
+              <button
+                key={cls}
+                onClick={() => setClassLevel(cls)}
+                style={{
+                  flex: 1,
+                  padding: "12px",
+                  borderRadius: "12px",
+                  border: "1.5px solid",
+                  borderColor:
+                    classLevel === cls ? "var(--accent)" : "var(--border)",
+                  background:
+                    classLevel === cls ? "var(--accent)" : "var(--bg)",
+                  color: classLevel === cls ? "#fff" : "var(--muted)",
+                  fontSize: "15px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: "var(--font-ui)",
+                  transition: "all 0.15s",
+                  boxShadow:
+                    classLevel === cls
+                      ? "0 2px 10px rgba(232,68,106,0.25)"
+                      : "none",
+                }}
+              >
+                Class {cls}
+              </button>
+            ))}
+          </div>
+
+          {/* Subject display */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "10px 14px",
+              borderRadius: "10px",
+              background: "var(--bg)",
+              border: "1px solid var(--border)",
+              marginBottom: "20px",
+            }}
+          >
+            <FlaskConical size={14} color="var(--accent)" strokeWidth={2} />
+            <span
+              style={{
+                fontSize: "13px",
+                color: "var(--dark)",
+                fontWeight: 500,
+              }}
+            >
+              Chemistry
+            </span>
+            <span
+              style={{
+                fontSize: "12px",
+                color: "var(--muted)",
+                marginLeft: "auto",
+              }}
+            >
+              JEE & NEET aligned
+            </span>
+          </div>
+
+          {/* Submit */}
           <button
             onClick={handleEnter}
             disabled={loading || name.trim().length < 2}
@@ -193,8 +282,11 @@ function StudentEntry() {
         >
           {[
             { icon: <BookOpen size={12} />, text: "NCERT aligned" },
-            { icon: <Brain size={12} />, text: "Personal knowledge graph" },
-            { icon: <TrendingUp size={12} />, text: "Tracks your mastery" },
+            { icon: <Brain size={12} />, text: "Subtopic progression" },
+            {
+              icon: <TrendingUp size={12} />,
+              text: "Personal knowledge graph",
+            },
           ].map((f) => (
             <div
               key={f.text}

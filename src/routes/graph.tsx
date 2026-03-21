@@ -1,8 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useStudentStore } from "../store/student.store";
-import { graphApi } from "../lib/api";
-import type { StudentGraph, GraphNode } from "../lib/api";
+import { graphApi, subtopicApi } from "../lib/api";
+import type { StudentGraph, GraphNode, ChapterProgress } from "../lib/api";
 import ForceGraph2D from "react-force-graph-2d";
 import { redirect } from "@tanstack/react-router";
 import {
@@ -13,6 +13,9 @@ import {
   Sparkles,
   RefreshCw,
   Info,
+  FlaskConical,
+  CheckCheck,
+  ChevronRight,
 } from "lucide-react";
 
 export const Route = createFileRoute("/graph")({
@@ -24,7 +27,7 @@ export const Route = createFileRoute("/graph")({
 });
 
 const NODE_COLORS: Record<string, string> = {
-  not_started: "#D1B8BE",
+  not_started: "#E8C5CE",
   struggling: "#EF4444",
   developing: "#F97316",
   proficient: "#EAB308",
@@ -57,14 +60,18 @@ const MASTERY_BG: Record<string, string> = {
 
 function GraphPage() {
   const student = useStudentStore((s) => s.student);
+  const classLevel = useStudentStore((s) => s.classLevel);
   const graphRef = useRef<any>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const [graph, setGraph] = useState<StudentGraph | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  const [chapterProgress, setChapterProgress] =
+    useState<ChapterProgress | null>(null);
+  const [progressLoading, setProgressLoading] = useState(false);
   const [recommendations, setRecommendations] = useState<any[]>([]);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
-  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const measure = () => {
@@ -84,11 +91,9 @@ function GraphPage() {
     if (!student) return;
     setLoading(true);
     try {
-      const preferredClassLevel =
-        useStudentStore.getState().preferredClassLevel;
       const [graphData, recs] = await Promise.all([
         graphApi.getStudentGraph(student.id),
-        graphApi.getRecommendations(student.id, "Science", preferredClassLevel),
+        graphApi.getRecommendations(student.id, "Chemistry", classLevel),
       ]);
       setGraph(graphData);
       setRecommendations(recs);
@@ -97,7 +102,7 @@ function GraphPage() {
     } finally {
       setLoading(false);
     }
-  }, [student]);
+  }, [student, classLevel]);
 
   useEffect(() => {
     fetchGraph();
@@ -109,65 +114,88 @@ function GraphPage() {
     return () => window.removeEventListener("focus", handleFocus);
   }, [fetchGraph]);
 
+  // When node is clicked — fetch chapter progress
+  const handleNodeClick = useCallback(
+    async (node: any) => {
+      if (!student) return;
+      const fullNode = graph?.nodes.find((n) => n.id === node.id);
+      if (fullNode) {
+        setSelectedNode(fullNode);
+        setProgressLoading(true);
+        try {
+          const progress = await subtopicApi.getChapterProgress(
+            fullNode.id,
+            student.id,
+          );
+          setChapterProgress(progress);
+        } catch {
+          setChapterProgress(null);
+        } finally {
+          setProgressLoading(false);
+        }
+      }
+    },
+    [graph, student],
+  );
+
   const graphData = graph
     ? {
         nodes: graph.nodes.map((n) => ({
           ...n,
-          color: NODE_COLORS[n.masteryLevel] ?? "#D1B8BE",
-          size: 4 + n.mastery * 8,
+          color: NODE_COLORS[n.masteryLevel] ?? "#E8C5CE",
+          size: 4 + n.mastery * 10,
         })),
         links: graph.edges.map((e) => ({
           source: e.source,
           target: e.target,
           type: e.type,
-          color: e.type === "REQUIRES" ? "#E5C5CC" : "#EDD9DE",
+          color: e.type === "REQUIRES" ? "#F0D0D5" : "#F5E0E3",
         })),
       }
     : { nodes: [], links: [] };
 
-  const handleNodeClick = useCallback(
-    (node: any) => {
-      const fullNode = graph?.nodes.find((n) => n.id === node.id);
-      if (fullNode) setSelectedNode(fullNode);
-      else setSelectedNode(node as GraphNode);
-    },
-    [graph],
-  );
-
   const paintNode = useCallback(
     (node: any, ctx: CanvasRenderingContext2D) => {
-      const size = node.size ?? 5;
-      const color = node.color ?? "#D1B8BE";
+      const size = Math.max(5, node.size ?? 5);
+      const color = node.color ?? "#E8C5CE";
       const isSelected = selectedNode?.id === node.id;
 
+      // Glow for selected
       if (isSelected) {
         ctx.beginPath();
-        ctx.arc(node.x, node.y, size + 5, 0, 2 * Math.PI);
-        ctx.fillStyle = color + "25";
+        ctx.arc(node.x, node.y, size + 6, 0, 2 * Math.PI);
+        ctx.fillStyle = color + "30";
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, size + 3, 0, 2 * Math.PI);
+        ctx.fillStyle = color + "50";
         ctx.fill();
       }
 
+      // Main circle
       ctx.beginPath();
       ctx.arc(node.x, node.y, size, 0, 2 * Math.PI);
       ctx.fillStyle = color;
       ctx.fill();
 
+      // White border
       ctx.beginPath();
       ctx.arc(node.x, node.y, size, 0, 2 * Math.PI);
-      ctx.strokeStyle = isSelected ? "#1A0A0E" : "rgba(255,255,255,0.7)";
-      ctx.lineWidth = isSelected ? 2 : 1;
+      ctx.strokeStyle = isSelected ? "#1A0A0E" : "rgba(255,255,255,0.8)";
+      ctx.lineWidth = isSelected ? 2 : 1.5;
       ctx.stroke();
 
+      // Label for attempted or selected nodes
       if (node.attempts > 0 || isSelected) {
-        const label =
-          node.name.length > 22
-            ? node.name.substring(0, 20) + "..."
-            : node.name;
-        ctx.font = `${isSelected ? "bold " : ""}8px Plus Jakarta Sans, sans-serif`;
+        const words = node.name.split(" ");
+        const shortName =
+          words.length > 3 ? words.slice(0, 3).join(" ") + "..." : node.name;
+
+        ctx.font = `${isSelected ? "bold " : ""}8.5px Plus Jakarta Sans, sans-serif`;
         ctx.fillStyle = "#1A0A0E";
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
-        ctx.fillText(label, node.x, node.y + size + 4);
+        ctx.fillText(shortName, node.x, node.y + size + 4);
       }
     },
     [selectedNode],
@@ -217,7 +245,7 @@ function GraphPage() {
                   margin: "0 auto 12px",
                 }}
               >
-                <Brain size={24} color="var(--accent)" strokeWidth={2} />
+                <FlaskConical size={24} color="var(--accent)" strokeWidth={2} />
               </div>
               <p
                 style={{
@@ -227,10 +255,10 @@ function GraphPage() {
                   margin: "0 0 4px",
                 }}
               >
-                Loading your knowledge graph...
+                Loading knowledge graph...
               </p>
               <p style={{ fontSize: "12px", color: "var(--muted)", margin: 0 }}>
-                Fetching {student.name}'s learning data
+                {student.name}'s Chemistry map
               </p>
             </div>
           </div>
@@ -245,23 +273,23 @@ function GraphPage() {
                 nodeCanvasObject={paintNode}
                 nodeCanvasObjectMode={() => "replace"}
                 nodePointerAreaPaint={(node: any, color, ctx) => {
-                  const size = node.size ?? 5;
+                  const size = Math.max(5, node.size ?? 5);
                   ctx.fillStyle = color;
                   ctx.beginPath();
-                  ctx.arc(node.x, node.y, size + 2, 0, 2 * Math.PI);
+                  ctx.arc(node.x, node.y, size + 3, 0, 2 * Math.PI);
                   ctx.fill();
                 }}
                 linkColor={(link: any) => link.color}
                 linkWidth={(link: any) =>
-                  link.type === "REQUIRES" ? 1.2 : 0.6
+                  link.type === "REQUIRES" ? 1.5 : 0.8
                 }
                 linkDirectionalArrowLength={(link: any) =>
-                  link.type === "REQUIRES" ? 3 : 0
+                  link.type === "REQUIRES" ? 4 : 0
                 }
                 linkDirectionalArrowRelPos={1}
                 onNodeClick={handleNodeClick}
                 backgroundColor="#FFF8F9"
-                cooldownTicks={100}
+                cooldownTicks={120}
                 d3AlphaDecay={0.02}
                 d3VelocityDecay={0.3}
                 nodeLabel=""
@@ -274,7 +302,8 @@ function GraphPage() {
                 position: "absolute",
                 bottom: "16px",
                 left: "16px",
-                background: "var(--surface)",
+                background: "rgba(255,255,255,0.95)",
+                backdropFilter: "blur(8px)",
                 borderRadius: "12px",
                 border: "1px solid var(--border)",
                 padding: "12px 14px",
@@ -283,7 +312,7 @@ function GraphPage() {
             >
               <div
                 style={{
-                  fontSize: "10px",
+                  fontSize: "9px",
                   fontWeight: 700,
                   color: "var(--muted)",
                   textTransform: "uppercase",
@@ -320,10 +349,37 @@ function GraphPage() {
                   </div>
                 ))}
               </div>
+              <div
+                style={{
+                  borderTop: "1px solid var(--border)",
+                  marginTop: "8px",
+                  paddingTop: "8px",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    marginBottom: "4px",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "16px",
+                      height: "1.5px",
+                      background: "#F0D0D5",
+                    }}
+                  />
+                  <span style={{ fontSize: "10px", color: "var(--muted)" }}>
+                    Requires
+                  </span>
+                </div>
+              </div>
             </div>
 
-            {/* Click hint */}
-            {!selectedNode && (
+            {/* Hint */}
+            {!selectedNode && !loading && (
               <div
                 style={{
                   position: "absolute",
@@ -338,11 +394,12 @@ function GraphPage() {
                   display: "flex",
                   alignItems: "center",
                   gap: "5px",
+                  pointerEvents: "none",
                 }}
               >
                 <Info size={12} color="var(--muted)" strokeWidth={2} />
                 <span style={{ fontSize: "12px", color: "var(--muted)" }}>
-                  Click any node to see topic details
+                  Click any node to see chapter details
                 </span>
               </div>
             )}
@@ -391,7 +448,7 @@ function GraphPage() {
                 {student.name}'s Graph
               </h2>
               <p style={{ fontSize: "11px", color: "var(--muted)", margin: 0 }}>
-                Science · Class 6–10
+                Chemistry · Class {classLevel}
               </p>
             </div>
             <button
@@ -425,28 +482,28 @@ function GraphPage() {
             >
               {[
                 {
-                  label: "Topics",
+                  label: "Chapters",
                   value: graph.stats.totalTopics,
                   icon: <BookOpen size={14} />,
-                  color: "#6366F1",
+                  color: "#E8446A",
                 },
                 {
                   label: "Attempted",
                   value: graph.stats.attempted,
                   icon: <Target size={14} />,
-                  color: "var(--accent)",
+                  color: "#D97706",
                 },
                 {
                   label: "Mastered",
                   value: graph.stats.mastered,
-                  icon: <TrendingUp size={14} />,
+                  icon: <CheckCheck size={14} />,
                   color: "#059669",
                 },
                 {
                   label: "Avg Mastery",
                   value: `${Math.round(graph.stats.averageMastery * 100)}%`,
                   icon: <Brain size={14} />,
-                  color: "#D97706",
+                  color: "#6366F1",
                 },
               ].map((stat) => (
                 <div
@@ -502,7 +559,7 @@ function GraphPage() {
             </div>
           )}
 
-          {/* Selected node */}
+          {/* Selected node — chapter details */}
           {selectedNode && (
             <div>
               <div
@@ -515,7 +572,7 @@ function GraphPage() {
                   marginBottom: "8px",
                 }}
               >
-                Selected Topic
+                Selected Chapter
               </div>
               <div
                 style={{
@@ -560,7 +617,7 @@ function GraphPage() {
                   </span>
                 </div>
 
-                {/* Mastery bar */}
+                {/* Chapter mastery bar */}
                 <div style={{ marginBottom: "10px" }}>
                   <div
                     style={{
@@ -571,7 +628,7 @@ function GraphPage() {
                       marginBottom: "4px",
                     }}
                   >
-                    <span>Mastery</span>
+                    <span>Chapter Mastery</span>
                     <span>{Math.round(selectedNode.mastery * 100)}%</span>
                   </div>
                   <div
@@ -594,69 +651,120 @@ function GraphPage() {
                   </div>
                 </div>
 
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    gap: "6px",
-                  }}
-                >
-                  {[
-                    { label: "Attempts", value: selectedNode.attempts },
-                    { label: "Class", value: selectedNode.classLevel },
-                  ].map((item) => (
-                    <div
-                      key={item.label}
-                      style={{
-                        background: "rgba(255,255,255,0.7)",
-                        borderRadius: "8px",
-                        padding: "8px 10px",
-                        border: "1px solid rgba(255,255,255,0.8)",
-                      }}
-                    >
-                      <div style={{ fontSize: "10px", color: "var(--muted)" }}>
-                        {item.label}
+                {/* Subtopic progress */}
+                {progressLoading ? (
+                  <div
+                    style={{
+                      fontSize: "11px",
+                      color: "var(--muted)",
+                      textAlign: "center",
+                      padding: "8px",
+                    }}
+                  >
+                    Loading subtopics...
+                  </div>
+                ) : (
+                  chapterProgress && (
+                    <div>
+                      <div
+                        style={{
+                          fontSize: "10px",
+                          fontWeight: 600,
+                          color: "var(--muted)",
+                          marginBottom: "6px",
+                        }}
+                      >
+                        {chapterProgress.completedSubtopics}/
+                        {chapterProgress.totalSubtopics} subtopics complete
                       </div>
                       <div
                         style={{
-                          fontSize: "14px",
-                          fontWeight: 700,
-                          color: "var(--dark)",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "4px",
                         }}
                       >
-                        {item.value}
+                        {chapterProgress.subtopics.map((sub) => (
+                          <div
+                            key={sub.subtopicId}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "7px",
+                              padding: "5px 8px",
+                              borderRadius: "7px",
+                              background: sub.isComplete
+                                ? "rgba(5,150,105,0.08)"
+                                : "rgba(255,255,255,0.5)",
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: "16px",
+                                height: "16px",
+                                borderRadius: "50%",
+                                background: sub.isComplete
+                                  ? "#059669"
+                                  : sub.isCurrent
+                                    ? "var(--accent)"
+                                    : "var(--border)",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                flexShrink: 0,
+                              }}
+                            >
+                              {sub.isComplete ? (
+                                <CheckCheck
+                                  size={9}
+                                  color="#fff"
+                                  strokeWidth={3}
+                                />
+                              ) : (
+                                <span
+                                  style={{
+                                    fontSize: "8px",
+                                    color: sub.isCurrent
+                                      ? "#fff"
+                                      : "var(--muted)",
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {sub.order}
+                                </span>
+                              )}
+                            </div>
+                            <span
+                              style={{
+                                fontSize: "11px",
+                                color: sub.isComplete
+                                  ? "#065F46"
+                                  : sub.isCurrent
+                                    ? "var(--accent)"
+                                    : "var(--muted)",
+                                fontWeight: sub.isCurrent ? 600 : 400,
+                                flex: 1,
+                                lineHeight: 1.3,
+                              }}
+                            >
+                              {sub.subtopicName}
+                            </span>
+                            {sub.attempts > 0 && (
+                              <span
+                                style={{
+                                  fontSize: "10px",
+                                  color: "var(--muted)",
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {Math.round(sub.mastery * 100)}%
+                              </span>
+                            )}
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  ))}
-                </div>
-
-                {selectedNode.trend && (
-                  <div
-                    style={{
-                      marginTop: "8px",
-                      fontSize: "11px",
-                      color: "var(--muted)",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "4px",
-                    }}
-                  >
-                    <TrendingUp size={11} strokeWidth={2} />
-                    Trend:
-                    <span
-                      style={{
-                        fontWeight: 600,
-                        color:
-                          selectedNode.trend === "improving"
-                            ? "#059669"
-                            : selectedNode.trend === "declining"
-                              ? "#DC2626"
-                              : "var(--muted)",
-                      }}
-                    >
-                      {selectedNode.trend}
-                    </span>
-                  </div>
+                  )
                 )}
               </div>
             </div>
@@ -702,13 +810,16 @@ function GraphPage() {
                       justifyContent: "space-between",
                     }}
                   >
-                    <div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <p
                         style={{
                           fontSize: "12px",
                           fontWeight: 600,
                           color: "var(--dark)",
                           margin: "0 0 2px",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
                         }}
                       >
                         {rec.name}
@@ -731,6 +842,8 @@ function GraphPage() {
                         borderRadius: "99px",
                         color: MASTERY_COLORS[rec.masteryLevel],
                         background: MASTERY_BG[rec.masteryLevel],
+                        flexShrink: 0,
+                        marginLeft: "8px",
                       }}
                     >
                       {MASTERY_LABELS[rec.masteryLevel]}
