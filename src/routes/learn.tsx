@@ -247,8 +247,7 @@ function LearnPage() {
   // Get last attempted chapter for "Continue" card
   const inProgressChapters = allProgress
     .filter(
-      (p) =>
-        p.completedSubtopics > 0 && p.completedSubtopics < p.totalSubtopics,
+      (p) => p.chapterMastery > 0 && p.completedSubtopics < p.totalSubtopics,
     )
     .sort((a, b) => b.chapterMastery - a.chapterMastery);
   const continueChapter = inProgressChapters[0] ?? null;
@@ -1968,139 +1967,36 @@ function ResultsPanel({
           </div>
         </div>
       )}
-
       {/* Action buttons */}
       <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-        {/* Next subtopic — only if complete and next exists */}
-        {/* Chapter complete celebration */}
-        {subtopicResult.justCompleted && !onNextSubtopic && (
-          <div
-            className="pop-in"
-            style={{
-              background: "linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%)",
-              border: "1.5px solid #6EE7B7",
-              borderRadius: "12px",
-              padding: "16px",
-              textAlign: "center",
-            }}
-          >
-            <div style={{ fontSize: "32px", marginBottom: "8px" }}>🎉</div>
-            <p
-              style={{
-                fontFamily: "var(--font-display)",
-                fontSize: "16px",
-                fontWeight: 700,
-                color: "#065F46",
-                margin: "0 0 4px",
-              }}
-            >
-              Chapter Complete!
-            </p>
-            <p
-              style={{ fontSize: "12px", color: "#059669", margin: "0 0 12px" }}
-            >
-              You've mastered all subtopics in this chapter. Your knowledge
-              graph has been updated.
-            </p>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "6px",
-                fontSize: "12px",
-                color: "#059669",
-                fontWeight: 600,
-              }}
-            >
-              <CheckCheck size={14} strokeWidth={2.5} />
-              {subtopicResult.subtopicName.split(":")[0]} chapter mastered
-            </div>
-          </div>
-        )}
-
-        {/* Action buttons */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-          {/* Next subtopic — only if complete and next exists */}
-          {subtopicResult.justCompleted && onNextSubtopic && (
-            <button
-              onClick={onNextSubtopic}
-              style={{
-                width: "100%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "7px",
-                padding: "12px",
-                borderRadius: "10px",
-                border: "none",
-                background: "#059669",
-                color: "#fff",
-                fontSize: "13px",
-                fontWeight: 600,
-                cursor: "pointer",
-                fontFamily: "var(--font-ui)",
-                boxShadow: "0 2px 10px rgba(5,150,105,0.3)",
-              }}
-            >
-              Next Subtopic
-              <ArrowRight size={14} strokeWidth={2.5} />
-            </button>
-          )}
-
-          {/* Retry — if not complete */}
-          {!subtopicResult.isComplete && (
-            <button
-              onClick={onRetry}
-              style={{
-                width: "100%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "7px",
-                padding: "12px",
-                borderRadius: "10px",
-                border: "none",
-                background: "var(--accent)",
-                color: "#fff",
-                fontSize: "13px",
-                fontWeight: 600,
-                cursor: "pointer",
-                fontFamily: "var(--font-ui)",
-                boxShadow: "0 2px 10px rgba(232,68,106,0.3)",
-              }}
-            >
-              <RotateCcw size={13} strokeWidth={2} />
-              Try Again
-            </button>
-          )}
-
-          {/* Back to chapter */}
+        {/* Next subtopic — only if just completed and next exists */}
+        {subtopicResult.justCompleted && onNextSubtopic && (
           <button
-            onClick={onBackToChapter}
+            onClick={onNextSubtopic}
             style={{
               width: "100%",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               gap: "7px",
-              padding: "11px",
+              padding: "12px",
               borderRadius: "10px",
-              border: "1px solid var(--border)",
-              background: "transparent",
-              color: "var(--muted)",
+              border: "none",
+              background: "#059669",
+              color: "#fff",
               fontSize: "13px",
-              fontWeight: 500,
+              fontWeight: 600,
               cursor: "pointer",
               fontFamily: "var(--font-ui)",
+              boxShadow: "0 2px 10px rgba(5,150,105,0.3)",
             }}
           >
-            <ChevronLeft size={13} strokeWidth={2} />
-            Back to Chapter
+            Next Subtopic
+            <ArrowRight size={14} strokeWidth={2.5} />
           </button>
-        </div>
+        )}
 
-        {/* Retry — if not complete */}
+        {/* Retry — only if not complete */}
         {!subtopicResult.isComplete && (
           <button
             onClick={onRetry}
@@ -2127,7 +2023,7 @@ function ResultsPanel({
           </button>
         )}
 
-        {/* Back to chapter */}
+        {/* Back to chapter — always shown */}
         <button
           onClick={onBackToChapter}
           style={{
