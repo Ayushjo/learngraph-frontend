@@ -61,6 +61,35 @@ sub { bottom: -0.25em; }
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
 }
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.skeleton {
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+  background: var(--border);
+  border-radius: 8px;
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.slide-up {
+  animation: slide-up 0.3s ease forwards;
+}
+
+@keyframes pop-in {
+  0%   { opacity: 0; transform: scale(0.92); }
+  70%  { transform: scale(1.02); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.pop-in {
+  animation: pop-in 0.35s ease forwards;
+}
 @keyframes shake {
   0%, 100% { transform: translateX(0); }
   15%  { transform: translateX(-5px); }

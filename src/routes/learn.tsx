@@ -347,7 +347,10 @@ function LearnPage() {
       <div style={{ flex: 1, overflow: "hidden", display: "flex" }}>
         {/* ════ SETUP — Dashboard ════ */}
         {screen === "setup" && (
-          <div style={{ flex: 1, overflowY: "auto", padding: "32px 40px" }}>
+          <div
+            style={{ flex: 1, overflowY: "auto", padding: "32px 40px" }}
+            className="slide-up"
+          >
             <div style={{ maxWidth: "900px", margin: "0 auto" }}>
               {/* Greeting */}
               <div style={{ marginBottom: "28px" }}>
@@ -382,7 +385,44 @@ function LearnPage() {
               </div>
 
               {/* Top row — Continue + Recommended */}
-              {!dashLoading && (
+              {dashLoading ? (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: "16px",
+                    marginBottom: "28px",
+                  }}
+                >
+                  {[1, 2].map((i) => (
+                    <div
+                      key={i}
+                      style={{
+                        background: "var(--surface)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "16px",
+                        padding: "20px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "12px",
+                      }}
+                    >
+                      <div
+                        className="skeleton"
+                        style={{ height: "12px", width: "40%" }}
+                      />
+                      <div
+                        className="skeleton"
+                        style={{ height: "80px", borderRadius: "12px" }}
+                      />
+                      <div
+                        className="skeleton"
+                        style={{ height: "40px", borderRadius: "10px" }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : (
                 <div
                   style={{
                     display: "grid",
@@ -678,138 +718,191 @@ function LearnPage() {
                 >
                   All Chapters — Class {classLevel} Chemistry
                 </div>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(3, 1fr)",
-                    gap: "12px",
-                  }}
-                >
-                  {topics.map((topic) => {
-                    const progress = allProgress.find(
-                      (p) => p.topicId === topic.id,
-                    );
-                    const completed = progress?.completedSubtopics ?? 0;
-                    const total = topic.totalSubtopics;
-                    const mastery = progress?.chapterMastery ?? 0;
-                    const masteryLevel = getMasteryLevel(
-                      mastery,
-                      mastery > 0 ? 1 : 0,
-                    );
-                    const pct = Math.round((completed / total) * 100);
 
-                    return (
-                      <button
-                        key={topic.id}
-                        onClick={() => handleSelectChapter(topic)}
+                {dashLoading ? (
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(3, 1fr)",
+                      gap: "12px",
+                    }}
+                  >
+                    {Array.from({ length: 15 }).map((_, i) => (
+                      <div
+                        key={i}
                         style={{
                           background: "var(--surface)",
                           border: "1px solid var(--border)",
                           borderRadius: "14px",
                           padding: "16px",
-                          textAlign: "left",
-                          cursor: "pointer",
-                          fontFamily: "var(--font-ui)",
-                          transition: "all 0.15s",
-                        }}
-                        onMouseEnter={(e) => {
-                          (
-                            e.currentTarget as HTMLButtonElement
-                          ).style.borderColor = "var(--accent)";
-                          (
-                            e.currentTarget as HTMLButtonElement
-                          ).style.transform = "translateY(-1px)";
-                          (
-                            e.currentTarget as HTMLButtonElement
-                          ).style.boxShadow = "0 4px 16px rgba(232,68,106,0.1)";
-                        }}
-                        onMouseLeave={(e) => {
-                          (
-                            e.currentTarget as HTMLButtonElement
-                          ).style.borderColor = "var(--border)";
-                          (
-                            e.currentTarget as HTMLButtonElement
-                          ).style.transform = "none";
-                          (
-                            e.currentTarget as HTMLButtonElement
-                          ).style.boxShadow = "none";
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "10px",
                         }}
                       >
-                        {/* Chapter name */}
-                        <p
-                          style={{
-                            fontSize: "13px",
-                            fontWeight: 600,
-                            color: "var(--dark)",
-                            margin: "0 0 10px",
-                            lineHeight: 1.4,
-                          }}
-                        >
-                          {topic.name}
-                        </p>
-
-                        {/* Progress bar */}
                         <div
-                          style={{
-                            background: "var(--border)",
-                            borderRadius: "99px",
-                            height: "4px",
-                            overflow: "hidden",
-                            marginBottom: "8px",
-                          }}
-                        >
-                          <div
-                            style={{
-                              height: "100%",
-                              width: `${pct}%`,
-                              background:
-                                completed === total && total > 0
-                                  ? "#059669"
-                                  : "var(--accent)",
-                              borderRadius: "99px",
-                              transition: "width 0.6s ease",
-                            }}
-                          />
-                        </div>
-
-                        {/* Footer */}
+                          className="skeleton"
+                          style={{ height: "13px", width: "80%" }}
+                        />
+                        <div
+                          className="skeleton"
+                          style={{ height: "13px", width: "55%" }}
+                        />
+                        <div
+                          className="skeleton"
+                          style={{ height: "4px", borderRadius: "99px" }}
+                        />
                         <div
                           style={{
                             display: "flex",
-                            alignItems: "center",
                             justifyContent: "space-between",
                           }}
                         >
-                          <span
-                            style={{ fontSize: "11px", color: "var(--muted)" }}
+                          <div
+                            className="skeleton"
+                            style={{ height: "11px", width: "28%" }}
+                          />
+                          <div
+                            className="skeleton"
+                            style={{ height: "11px", width: "22%" }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(3, 1fr)",
+                      gap: "12px",
+                    }}
+                  >
+                    {topics.map((topic) => {
+                      const progress = allProgress.find(
+                        (p) => p.topicId === topic.id,
+                      );
+                      const completed = progress?.completedSubtopics ?? 0;
+                      const total = topic.totalSubtopics;
+                      const mastery = progress?.chapterMastery ?? 0;
+                      const masteryLevel = getMasteryLevel(
+                        mastery,
+                        mastery > 0 ? 1 : 0,
+                      );
+                      const pct = Math.round((completed / total) * 100);
+
+                      return (
+                        <button
+                          key={topic.id}
+                          onClick={() => handleSelectChapter(topic)}
+                          style={{
+                            background: "var(--surface)",
+                            border: "1px solid var(--border)",
+                            borderRadius: "14px",
+                            padding: "16px",
+                            textAlign: "left",
+                            cursor: "pointer",
+                            fontFamily: "var(--font-ui)",
+                            transition: "all 0.15s",
+                          }}
+                          onMouseEnter={(e) => {
+                            (
+                              e.currentTarget as HTMLButtonElement
+                            ).style.borderColor = "var(--accent)";
+                            (
+                              e.currentTarget as HTMLButtonElement
+                            ).style.transform = "translateY(-1px)";
+                            (
+                              e.currentTarget as HTMLButtonElement
+                            ).style.boxShadow =
+                              "0 4px 16px rgba(232,68,106,0.1)";
+                          }}
+                          onMouseLeave={(e) => {
+                            (
+                              e.currentTarget as HTMLButtonElement
+                            ).style.borderColor = "var(--border)";
+                            (
+                              e.currentTarget as HTMLButtonElement
+                            ).style.transform = "none";
+                            (
+                              e.currentTarget as HTMLButtonElement
+                            ).style.boxShadow = "none";
+                          }}
+                        >
+                          <p
+                            style={{
+                              fontSize: "13px",
+                              fontWeight: 600,
+                              color: "var(--dark)",
+                              margin: "0 0 10px",
+                              lineHeight: 1.4,
+                            }}
                           >
-                            {completed}/{total} done
-                          </span>
-                          {completed === total && total > 0 ? (
-                            <CheckCheck
-                              size={13}
-                              color="#059669"
-                              strokeWidth={2.5}
+                            {topic.name}
+                          </p>
+                          <div
+                            style={{
+                              background: "var(--border)",
+                              borderRadius: "99px",
+                              height: "4px",
+                              overflow: "hidden",
+                              marginBottom: "8px",
+                            }}
+                          >
+                            <div
+                              style={{
+                                height: "100%",
+                                width: `${pct}%`,
+                                background:
+                                  completed === total && total > 0
+                                    ? "#059669"
+                                    : "var(--accent)",
+                                borderRadius: "99px",
+                                transition: "width 0.6s ease",
+                              }}
                             />
-                          ) : (
+                          </div>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                            }}
+                          >
                             <span
                               style={{
-                                fontSize: "10px",
-                                fontWeight: 600,
-                                padding: "2px 7px",
-                                borderRadius: "99px",
-                                color: MASTERY_COLORS[masteryLevel],
-                                background: MASTERY_BG[masteryLevel],
+                                fontSize: "11px",
+                                color: "var(--muted)",
                               }}
                             >
-                              {MASTERY_LABEL[masteryLevel]}
+                              {completed}/{total} done
                             </span>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                            {completed === total && total > 0 ? (
+                              <CheckCheck
+                                size={13}
+                                color="#059669"
+                                strokeWidth={2.5}
+                              />
+                            ) : (
+                              <span
+                                style={{
+                                  fontSize: "10px",
+                                  fontWeight: 600,
+                                  padding: "2px 7px",
+                                  borderRadius: "99px",
+                                  color: MASTERY_COLORS[masteryLevel],
+                                  background: MASTERY_BG[masteryLevel],
+                                }}
+                              >
+                                {MASTERY_LABEL[masteryLevel]}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -817,7 +910,10 @@ function LearnPage() {
 
         {/* ════ CHAPTER VIEW — Subtopic roadmap ════ */}
         {screen === "chapter" && chapterProgress && selectedTopic && (
-          <div style={{ flex: 1, overflowY: "auto", padding: "32px 40px" }}>
+          <div
+            style={{ flex: 1, overflowY: "auto", padding: "32px 40px" }}
+            className="slide-up"
+          >
             <div style={{ maxWidth: "680px", margin: "0 auto" }}>
               {/* Chapter header */}
               <div style={{ marginBottom: "28px" }}>
@@ -1675,6 +1771,7 @@ function ResultsPanel({
       {/* Subtopic completion banner */}
       {subtopicResult.justCompleted && (
         <div
+          className="pop-in"
           style={{
             background: "#ECFDF5",
             border: "1px solid #BBF7D0",
@@ -1878,6 +1975,7 @@ function ResultsPanel({
         {/* Chapter complete celebration */}
         {subtopicResult.justCompleted && !onNextSubtopic && (
           <div
+            className="pop-in"
             style={{
               background: "linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%)",
               border: "1.5px solid #6EE7B7",
