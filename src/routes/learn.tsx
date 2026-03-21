@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { useStudentStore } from "../store/student.store";
 import { contentApi, quizApi } from "../lib/api";
 import type { Session, QuizResult, Question } from "../lib/api";
-import { TOPICS_BY_CLASS, CLASS_LEVELS } from "../lib/topics"
+import { TOPICS_BY_CLASS, CLASS_LEVELS } from "../lib/topics";
 import toast from "react-hot-toast";
 import {
   BookOpen,
@@ -17,11 +17,16 @@ import {
   RotateCcw,
   ArrowRight,
 } from "lucide-react";
-
+import { redirect } from "@tanstack/react-router";
 export const Route = createFileRoute("/learn")({
+  beforeLoad: () => {
+    const student = useStudentStore.getState().student;
+    if (!student) {
+      throw redirect({ to: "/" });
+    }
+  },
   component: LearnPage,
 });
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ScreenState = "setup" | "loading" | "quiz" | "results";
@@ -79,9 +84,9 @@ function LearnPage() {
   >({});
   const [quizResult, setQuizResult] = useState<QuizResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
-
+  const [unansweredQuestions, setUnansweredQuestions] = useState<number[]>([]);
   const topics = TOPICS_BY_CLASS[classLevel] || [];
-  const selectedTopic = topics.find((t:any) => t.id === topicId);
+  const selectedTopic = topics.find((t: any) => t.id === topicId);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
@@ -112,17 +117,34 @@ function LearnPage() {
   };
 
   const handleSelectAnswer = (questionIndex: number, optionIndex: number) => {
-    if (quizResult) return; // locked after submit
+    if (quizResult) return;
     setSelectedAnswers((prev) => ({ ...prev, [questionIndex]: optionIndex }));
+    // Clear unanswered highlight when answered
+    setUnansweredQuestions((prev) => prev.filter((i) => i !== questionIndex));
   };
 
   const handleSubmit = async () => {
     if (!student || !session) return;
-    if (Object.keys(selectedAnswers).length < 5) {
-      toast.error("Please answer all 5 questions before submitting");
+
+    // Find which questions are unanswered
+    const unanswered = [0, 1, 2, 3, 4].filter(
+      (i) => selectedAnswers[i] === undefined,
+    );
+
+    if (unanswered.length > 0) {
+      setUnansweredQuestions(unanswered);
+      toast.error(
+        `Please answer question${unanswered.length > 1 ? "s" : ""} ${unanswered.map((i) => i + 1).join(", ")}`,
+      );
+      // Scroll to first unanswered question
+      const el = document.getElementById(`question-${unanswered[0]}`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
+
+    setUnansweredQuestions([]);
     setSubmitting(true);
+
     try {
       const answers = [0, 1, 2, 3, 4].map((i) => selectedAnswers[i] ?? 0);
       const result = await quizApi.submit({
@@ -208,7 +230,7 @@ function LearnPage() {
                     Class
                   </label>
                   <div className="flex gap-2">
-                    {CLASS_LEVELS.map((cls:any) => (
+                    {CLASS_LEVELS.map((cls: any) => (
                       <button
                         key={cls}
                         onClick={() => {
@@ -238,7 +260,7 @@ function LearnPage() {
                     className="w-full px-4 py-3 rounded-xl border border-[#E2E8F0] text-[#0F172A] text-sm focus:outline-none focus:ring-2 focus:ring-[#4F46E5] focus:border-transparent bg-white appearance-none"
                   >
                     <option value="">— Select a topic —</option>
-                    {topics.map((t:any) => (
+                    {topics.map((t: any) => (
                       <option key={t.id} value={t.id}>
                         {t.name}
                       </option>
@@ -355,6 +377,7 @@ function LearnPage() {
                     result={quizResult?.answerResults[qi]}
                     onSelect={handleSelectAnswer}
                     showResult={screen === "results"}
+                    isUnanswered={unansweredQuestions.includes(qi)}
                   />
                 ))}
 
@@ -402,6 +425,7 @@ function QuestionCard({
   result,
   onSelect,
   showResult,
+  isUnanswered,
 }: {
   question: Question;
   questionIndex: number;
@@ -409,6 +433,7 @@ function QuestionCard({
   result: any;
   onSelect: (qi: number, oi: number) => void;
   showResult: boolean;
+  isUnanswered: boolean;
 }) {
   const cognitiveLabels: Record<string, string> = {
     recall: "Recall",
@@ -420,12 +445,15 @@ function QuestionCard({
 
   return (
     <div
+      id={`question-${questionIndex}`}
       className={`rounded-xl border p-4 transition-all ${
-        showResult
-          ? result?.isCorrect
-            ? "border-emerald-200 bg-emerald-50/30"
-            : "border-red-200 bg-red-50/30"
-          : "border-[#E2E8F0] bg-white"
+        isUnanswered
+          ? "border-red-400 bg-red-50/40 shake"
+          : showResult
+            ? result?.isCorrect
+              ? "border-emerald-200 bg-emerald-50/30"
+              : "border-red-200 bg-red-50/30"
+            : "border-[#E2E8F0] bg-white"
       }`}
     >
       {/* Meta */}

@@ -13,8 +13,14 @@ import {
   RefreshCw,
   Info,
 } from "lucide-react";
-
+import { redirect } from "@tanstack/react-router";
 export const Route = createFileRoute("/graph")({
+  beforeLoad: () => {
+    const student = useStudentStore.getState().student;
+    if (!student) {
+      throw redirect({ to: "/" });
+    }
+  },
   component: GraphPage,
 });
 
@@ -157,8 +163,15 @@ function GraphPage() {
   // Handle node click
   const handleNodeClick = useCallback(
     (node: any) => {
+      // node from force-graph has the original data spread onto it
+      // so node.id directly matches our GraphNode id
       const fullNode = graph?.nodes.find((n) => n.id === node.id);
-      if (fullNode) setSelectedNode(fullNode);
+      if (fullNode) {
+        setSelectedNode(fullNode);
+      } else {
+        // fallback — use node data directly
+        setSelectedNode(node as GraphNode);
+      }
     },
     [graph],
   );
@@ -240,6 +253,13 @@ function GraphPage() {
                 height={dimensions.height}
                 nodeCanvasObject={paintNode}
                 nodeCanvasObjectMode={() => "replace"}
+                nodePointerAreaPaint={(node: any, color, ctx) => {
+                  const size = node.size ?? 6;
+                  ctx.fillStyle = color;
+                  ctx.beginPath();
+                  ctx.arc(node.x, node.y, size + 2, 0, 2 * Math.PI);
+                  ctx.fill();
+                }}
                 linkColor={(link: any) => link.color}
                 linkWidth={(link: any) =>
                   link.type === "REQUIRES" ? 1.5 : 0.8
